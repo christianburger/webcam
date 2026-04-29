@@ -1,0 +1,9 @@
+# wrangler.toml  –  ESP32-CAM relay Worker
+# Place this file in your project directory alongside cloudflare_worker.js
+name               = "esp32-cam-relay"
+main               = "cloudflare_worker.js"
+compatibility_date = "2024-09-23"
+
+[[kv_namespaces]]
+binding = "CAM_STORE"
+id      = "1ff4e4cdb26048e98142f153378c81de"

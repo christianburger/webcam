@@ -1,0 +1,75 @@
+build/*
+build/
+
+node_modules/
+node_modules/*
+
+sdkconfig.old
+sdkconfig.local
+
+*.priv
+
+# Prerequisites
+*.d
+
+# Object files
+*.o
+*.ko
+*.obj
+*.elf
+
+# Linker output
+*.ilk
+*.map
+*.exp
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Libraries
+*.lib
+*.a
+*.la
+*.lo
+
+# Shared objects (inc. Windows DLLs)
+*.dll
+*.so
+*.so.*
+*.dylib
+
+# Executables
+*.exe
+*.out
+*.app
+*.i*86
+*.x86_64
+*.hex
+
+# Debug files
+*.dSYM/
+*.su
+*.idb
+*.pdb
+
+# Kernel Module Compile Results
+*.mod*
+*.cmd
+.tmp_versions/
+modules.order
+Module.symvers
+Mkfile.old
+dkms.conf
+
+# ESP-IDF Component Manager
+/components/micro_ros_espidf_component/
+managed_components/
+dependencies.lock
+
+# ESP-IDF build system
+sdkconfig.old
+
+# IDE files
+.vscode/
+.idea/
