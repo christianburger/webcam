@@ -14,14 +14,13 @@
 #include <stdio.h>
 
 // frame_queue is produced by camera_task (main.c) and consumed here.
-// frame_ready_semaphore has been removed — it was created but never taken.
 extern QueueHandle_t frame_queue;
 
 #define SW_JPEG_QUALITY 80
 #define STREAM_BOUNDARY "ESP32CAMBOUNDARY"
 
 // ═════════════════════════════════════════════════════════════════════════════
-//  Embedded HTML  (single-page app, no external dependencies)
+//  Embedded HTML  (original, unchanged)
 // ═════════════════════════════════════════════════════════════════════════════
 
 static const char ROOT_HTML[] =
@@ -431,9 +430,8 @@ static const char ROOT_HTML[] =
 "</body>\n"
 "</html>\n";
 
-
 // ═════════════════════════════════════════════════════════════════════════════
-//  Shared helpers
+//  Shared helpers (unchanged)
 // ═════════════════════════════════════════════════════════════════════════════
 
 static esp_err_t query_int(httpd_req_t *req, const char *key, int *out) {
@@ -475,9 +473,8 @@ static bool get_jpeg(camera_fb_t *pic, uint8_t **out_buf, size_t *out_len, bool 
     return true;
 }
 
-
 // ═════════════════════════════════════════════════════════════════════════════
-//  Camera handlers
+//  Camera handlers (with added logging)
 // ═════════════════════════════════════════════════════════════════════════════
 
 esp_err_t root_handler(httpd_req_t *req) {
@@ -529,21 +526,32 @@ esp_err_t hardware_info_handler(httpd_req_t *req) {
 }
 
 esp_err_t capture_handler(httpd_req_t *req) {
-    // Drain stale queued frames so esp_camera_fb_get() gets a fresh one.
+    ESP_LOGI(TG_CTL_CAPT, "capture request received");
+    // Drain stale queued frames
     camera_fb_t *stale;
-    while (xQueueReceive(frame_queue, &stale, 0) == pdTRUE && stale)
+    int drained = 0;
+    while (xQueueReceive(frame_queue, &stale, 0) == pdTRUE && stale) {
         esp_camera_fb_return(stale);
+        drained++;
+    }
+    if (drained) ESP_LOGD(TG_CTL_CAPT, "drained %d stale frames", drained);
 
+    ESP_LOGD(TG_CTL_CAPT, "calling esp_camera_fb_get()");
+    int64_t t0 = esp_timer_get_time();
     camera_fb_t *pic = esp_camera_fb_get();
+    int64_t t1 = esp_timer_get_time();
     if (!pic) {
-        ESP_LOGE(TG_CTL_CAPT, "fb_get NULL");
+        ESP_LOGE(TG_CTL_CAPT, "fb_get NULL after %lld µs", (long long)(t1-t0));
         httpd_resp_send_500(req);
         return ESP_FAIL;
     }
+    ESP_LOGI(TG_CTL_CAPT, "got frame %zu B in %lld µs", pic->len, (long long)(t1-t0));
+
     uint8_t *jpg = NULL;
     size_t   len = 0;
     bool converted = false;
     if (!get_jpeg(pic, &jpg, &len, &converted)) {
+        ESP_LOGE(TG_CTL_CAPT, "JPEG conversion failed");
         esp_camera_fb_return(pic);
         httpd_resp_send_500(req);
         return ESP_FAIL;
@@ -554,26 +562,34 @@ esp_err_t capture_handler(httpd_req_t *req) {
     esp_err_t res = httpd_resp_send(req, (const char *)jpg, (ssize_t)len);
     if (converted) free(jpg);
     esp_camera_fb_return(pic);
-    ESP_LOGI(TG_CTL_CAPT, "%zu B", len);
+    ESP_LOGI(TG_CTL_CAPT, "capture response sent, result=%d", res);
     return res;
 }
 
 esp_err_t stream_handler(httpd_req_t *req) {
-    ESP_LOGI(TG_CTL_STRM, "client connected");
+    ESP_LOGI(TG_CTL_STRM, "stream client connected, task=%s", pcTaskGetName(NULL));
     httpd_resp_set_type(req, "multipart/x-mixed-replace;boundary=" STREAM_BOUNDARY);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     httpd_resp_set_hdr(req, "Cache-Control", "no-cache");
 
+    uint32_t frame_idx = 0;
     while (1) {
         camera_fb_t *pic;
+        int64_t t0 = esp_timer_get_time();
+        ESP_LOGD(TG_CTL_STRM, "waiting for frame from queue...");
         if (xQueueReceive(frame_queue, &pic, pdMS_TO_TICKS(2000)) != pdTRUE || !pic) {
-            ESP_LOGW(TG_CTL_STRM, "frame timeout");
+            int64_t t1 = esp_timer_get_time();
+            ESP_LOGW(TG_CTL_STRM, "frame receive timeout after %lld µs", (long long)(t1-t0));
             break;
         }
+        int64_t t1 = esp_timer_get_time();
+        ESP_LOGD(TG_CTL_STRM, "got frame %zu B from queue in %lld µs", pic->len, (long long)(t1-t0));
+
         uint8_t *jpg = NULL;
         size_t   len = 0;
         bool converted = false;
         if (!get_jpeg(pic, &jpg, &len, &converted)) {
+            ESP_LOGE(TG_CTL_STRM, "JPEG conversion failed");
             esp_camera_fb_return(pic);
             break;
         }
@@ -591,16 +607,20 @@ esp_err_t stream_handler(httpd_req_t *req) {
         esp_camera_fb_return(pic);
 
         if (res != ESP_OK) {
-            ESP_LOGI(TG_CTL_STRM, "client disconnected (%d)", res);
+            ESP_LOGI(TG_CTL_STRM, "client disconnected (chunk send err %d)", res);
             break;
         }
+        frame_idx++;
+        if (frame_idx % 30 == 0) {
+            ESP_LOGI(TG_CTL_STRM, "sent %lu frames", (unsigned long)frame_idx);
+        }
+        vTaskDelay(pdMS_TO_TICKS(1));
     }
     return ESP_OK;
 }
 
-
 // ═════════════════════════════════════════════════════════════════════════════
-//  Control handlers
+//  Control handlers (unchanged)
 // ═════════════════════════════════════════════════════════════════════════════
 
 esp_err_t pan_handler(httpd_req_t *req) {
@@ -650,7 +670,6 @@ esp_err_t periph_state_handler(httpd_req_t *req) {
     httpd_resp_send(req, buf, (ssize_t)strlen(buf));
     return ESP_OK;
 }
-
 
 // ═════════════════════════════════════════════════════════════════════════════
 //  Handler registration
