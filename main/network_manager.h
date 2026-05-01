@@ -5,11 +5,11 @@
 #include "esp_err.h"
 #include "freertos/event_groups.h"
 
-#define WIFI_SSID "dlink-30C0"
-#define WIFI_PASS "ypics98298"
+//#define WIFI_SSID "dlink-30C0"
+//#define WIFI_PASS "ypics98298"
 
-//#define WIFI_SSID "Egbertowifi"
-//#define WIFI_PASS "Regrub@1941"
+#define WIFI_SSID "Egbertowifi"
+#define WIFI_PASS "Regrub@1941"
 
 #define NETWORK_TASK_STACK_SIZE 8192
 #define NETWORK_TASK_PRIORITY   5

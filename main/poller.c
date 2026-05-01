@@ -1,5 +1,34 @@
 // =============================================================================
-//  poller.c  –  ESP32 cloud relay polling task (thread‑safe)
+//  poller.c  –  ESP32 cloud relay polling task
+//
+//  Why esp_camera_fb_get() is called directly (no mutex)
+//  ──────────────────────────────────────────────────────
+//  The esp32-camera driver maintains an internal ring of fb_count frame buffers.
+//  fb_get() and fb_return() are individually safe to call from multiple tasks
+//  because the driver uses its own internal lock (event queue + ISR).
+//
+//  Wrapping fb_get() in an external mutex while letting the mutex stay locked
+//  across the blocking wait creates a priority-inversion deadlock:
+//
+//    camera_task: holds mutex, blocks in fb_get() (queue full, no free buffer)
+//    poller_task: waits on same mutex → can never call fb_return → deadlock
+//    stream_handler: the only entity that calls fb_return; if it is not running
+//                    (no browser connected) nobody ever frees a buffer → stuck.
+//
+//  Result: poller never builds a POST body → no POST → Cloudflare worker
+//  never receives a checkin → browser sees stale or absent frames.
+//
+//  Fix: remove camera_mutex / safe_camera_fb_get / safe_camera_fb_return.
+//       The driver handles its own concurrency.
+//
+//  Frame buffer lifecycle in this file
+//  ─────────────────────────────────────
+//    esp_camera_fb_get()          ← acquire, hold only during encode
+//    JPEG encode (if needed)
+//    AES-128-CBC encrypt
+//    esp_camera_fb_return()       ← release BEFORE any HTTPS I/O
+//    base64 encode
+//    POST /device/checkin         ← no camera buffer held during network call
 // =============================================================================
 
 #include "poller.h"
@@ -18,14 +47,13 @@
 #include "img_converters.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/semphr.h"
-#include "camera_safe.h"
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
 
 // ─── PSRAM-aware allocator ────────────────────────────────────────────────────
+
 static void *pmalloc(size_t n) {
     void *p = heap_caps_malloc(n, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!p) p = heap_caps_malloc(n, MALLOC_CAP_8BIT);
@@ -34,8 +62,10 @@ static void *pmalloc(size_t n) {
 }
 
 // ─── AES-128-CBC encrypt ──────────────────────────────────────────────────────
+// Output: [16-byte random IV][PKCS7-padded ciphertext]. Caller must free *out.
+
 static esp_err_t aes_encrypt(const uint8_t *in, size_t in_len,
-                              uint8_t **out,  size_t *out_len) {
+                              uint8_t **out, size_t *out_len) {
     uint8_t iv[16];
     esp_fill_random(iv, 16);
 
@@ -73,6 +103,7 @@ static esp_err_t aes_encrypt(const uint8_t *in, size_t in_len,
 }
 
 // ─── Base-64 encode ───────────────────────────────────────────────────────────
+
 static char *b64_encode(const uint8_t *in, size_t in_len, size_t *out_len) {
     size_t req = 0;
     mbedtls_base64_encode(NULL, 0, &req, in, in_len);
@@ -87,6 +118,7 @@ static char *b64_encode(const uint8_t *in, size_t in_len, size_t *out_len) {
 }
 
 // ─── Minimal JSON parsers ─────────────────────────────────────────────────────
+
 static bool json_str(const char *json, const char *key, char *out, size_t sz) {
     char needle[48];
     snprintf(needle, sizeof(needle), "\"%s\":\"", key);
@@ -115,6 +147,7 @@ static bool json_int(const char *json, const char *key, int *out) {
 }
 
 // ─── Command executor ─────────────────────────────────────────────────────────
+
 static void execute_command(const char *type, int value) {
     if      (strcmp(type, "pan")    == 0) servo_set_pan(value);
     else if (strcmp(type, "tilt")   == 0) servo_set_tilt(value);
@@ -142,7 +175,7 @@ static void parse_and_execute_commands(const char *json) {
         if (!obj_end) break;
 
         size_t len = (size_t)(obj_end - obj) + 1;
-        char *buf  = malloc(len + 1);
+        char *buf = malloc(len + 1);
         if (!buf) break;
         memcpy(buf, obj, len);
         buf[len] = '\0';
@@ -160,11 +193,11 @@ static void parse_and_execute_commands(const char *json) {
         p = obj_end + 1;
     }
 
-    if (n > 0)
-        ESP_LOGI(TG_POLL_CMD, "%d command(s) executed", n);
+    if (n > 0) ESP_LOGI(TG_POLL_CMD, "%d command(s) executed", n);
 }
 
 // ─── HTTP response accumulator ────────────────────────────────────────────────
+
 #define RESP_MAX 2048
 
 typedef struct {
@@ -187,6 +220,7 @@ static esp_err_t on_http_event(esp_http_client_event_t *e) {
 }
 
 // ─── POST one checkin ─────────────────────────────────────────────────────────
+
 static esp_err_t do_checkin(const char *frame_b64, size_t b64_len) {
     size_t json_cap = b64_len + 256;
     char *body = pmalloc(json_cap);
@@ -232,7 +266,7 @@ static esp_err_t do_checkin(const char *frame_b64, size_t b64_len) {
     free(body);
 
     if (ret != ESP_OK) {
-        ESP_LOGE(TG_POLL_TICK, "HTTP fail: %s", esp_err_to_name(ret));
+        ESP_LOGE(TG_POLL_TICK, "HTTP err: %s", esp_err_to_name(ret));
         esp_http_client_cleanup(client);
         free(resp.buf);
         return ret;
@@ -242,7 +276,9 @@ static esp_err_t do_checkin(const char *frame_b64, size_t b64_len) {
     esp_http_client_cleanup(client);
 
     if (status != 200) {
-        ESP_LOGE(TG_POLL_TICK, "server %d: %s", status, resp.buf);
+        // 401 = DEVICE_SECRET not set in Cloudflare Workers env
+        // Run: wrangler secret put DEVICE_SECRET
+        ESP_LOGE(TG_POLL_TICK, "server HTTP %d: %s", status, resp.buf);
         free(resp.buf);
         return ESP_FAIL;
     }
@@ -254,6 +290,7 @@ static esp_err_t do_checkin(const char *frame_b64, size_t b64_len) {
 }
 
 // ─── Main polling loop ────────────────────────────────────────────────────────
+
 void poller_task(void *pvParameters) {
     ESP_LOGI(TG_POLL_TICK, "started  interval=%d ms  backend=%s",
              POLLER_INTERVAL_MS, POLLER_BACKEND_URL);
@@ -261,20 +298,24 @@ void poller_task(void *pvParameters) {
     uint32_t ok_count   = 0;
     uint32_t fail_count = 0;
 
-    vTaskDelay(pdMS_TO_TICKS(3000));   // wait for WiFi + camera to settle
+    vTaskDelay(pdMS_TO_TICKS(3000));   // let WiFi + camera stabilise
 
     while (1) {
         TickType_t t0 = xTaskGetTickCount();
 
-        // ── Capture frame using thread‑safe wrapper ─────────────────────────
-        camera_fb_t *pic = safe_camera_fb_get();
+        // ── Capture frame directly — no mutex, no queue ──────────────────────
+        //  Calling esp_camera_fb_get() directly (not through any mutex wrapper)
+        //  is safe because the driver is internally thread-safe.  The buffer is
+        //  returned BEFORE the HTTPS call so it is never held across network I/O.
+        camera_fb_t *pic = esp_camera_fb_get();
         if (!pic) {
             ESP_LOGW(TG_POLL_TICK, "fb_get NULL — skip");
             goto next_tick;
         }
 
         {
-            // JPEG encode
+            // JPEG encode (OV2640 outputs JPEG natively; conversion only needed
+            // if the sensor is configured for a raw format)
             uint8_t *jpg  = NULL;
             size_t   jlen = 0;
             bool     conv = false;
@@ -285,24 +326,26 @@ void poller_task(void *pvParameters) {
             } else {
                 if (!frame2jpg(pic, 80, &jpg, &jlen)) {
                     ESP_LOGE(TG_POLL_TICK, "JPEG encode failed");
-                    safe_camera_fb_return(pic);
+                    esp_camera_fb_return(pic);
                     goto next_tick;
                 }
                 conv = true;
             }
 
-            // AES encrypt
+            // AES-128-CBC encrypt
             uint8_t *enc  = NULL;
             size_t   elen = 0;
             if (aes_encrypt(jpg, jlen, &enc, &elen) != ESP_OK) {
                 if (conv) free(jpg);
-                safe_camera_fb_return(pic);
+                esp_camera_fb_return(pic);
                 goto next_tick;
             }
             if (conv) free(jpg);
 
-            // Return frame buffer NOW (thread‑safe)
-            safe_camera_fb_return(pic);
+            // ── Return frame buffer NOW — before any network I/O ─────────────
+            //  With fb_count=3 and queue_depth=1, returning here guarantees
+            //  DMA always has at least one free buffer to write into.
+            esp_camera_fb_return(pic);
 
             // Base64 encode
             size_t b64len = 0;
@@ -313,7 +356,7 @@ void poller_task(void *pvParameters) {
                 goto next_tick;
             }
 
-            ESP_LOGD(TG_POLL_TICK, "jpg=%zub enc=%zub b64=%zub", jlen, elen, b64len);
+            ESP_LOGD(TG_POLL_TICK, "jpg=%zu enc=%zu b64=%zu", jlen, elen, b64len);
 
             // POST
             esp_err_t ret = do_checkin(b64, b64len);
@@ -323,13 +366,12 @@ void poller_task(void *pvParameters) {
                 ok_count++;
             } else {
                 fail_count++;
-                ESP_LOGW(TG_POLL_TICK, "checkin failed (ok=%lu fail=%lu)",
-                         ok_count, fail_count);
             }
 
             LOG_EVERY(TG_POLL_TICK, 20, (ok_count + fail_count),
-                      "stats ok=%lu fail=%lu heap=%lu B",
-                      ok_count, fail_count, (unsigned long)esp_get_free_heap_size());
+                      "ok=%lu fail=%lu heap=%lu B",
+                      (unsigned long)ok_count, (unsigned long)fail_count,
+                      (unsigned long)esp_get_free_heap_size());
         }
 
 next_tick:;
