@@ -458,6 +458,20 @@ static void send_err(httpd_req_t *req, const char *msg) {
     httpd_resp_sendstr(req, buf);
 }
 
+static void log_req_headers(httpd_req_t *req, const char *tag) {
+    size_t approx = 0;
+    const char *keys[] = { "Host", "User-Agent", "CF-Ray", "CF-Connecting-IP", "X-Forwarded-For", "CF-IPCountry" };
+    char v[160];
+    for (size_t i = 0; i < sizeof(keys)/sizeof(keys[0]); i++) {
+        size_t n = httpd_req_get_hdr_value_len(req, keys[i]);
+        if (n > 0) approx += n + 4 + strlen(keys[i]); // value + ": " + key
+        if (n > 0 && httpd_req_get_hdr_value_str(req, keys[i], v, sizeof(v)) == ESP_OK) {
+            ESP_LOGI(tag, "hdr %s=%s", keys[i], v);
+        }
+    }
+    ESP_LOGI(tag, "req uri=%s method=%d approx_hdr_bytes=%u", req->uri, (int)req->method, (unsigned)approx);
+}
+
 static bool get_jpeg(camera_fb_t *pic, uint8_t **out_buf, size_t *out_len, bool *converted) {
     *converted = false;
     if (pic->format == PIXFORMAT_JPEG) {
@@ -478,12 +492,14 @@ static bool get_jpeg(camera_fb_t *pic, uint8_t **out_buf, size_t *out_len, bool 
 // ═════════════════════════════════════════════════════════════════════════════
 
 esp_err_t root_handler(httpd_req_t *req) {
+    log_req_headers(req, TG_NET_HTTP);
     httpd_resp_set_type(req, "text/html");
     httpd_resp_send(req, ROOT_HTML, (ssize_t)strlen(ROOT_HTML));
     return ESP_OK;
 }
 
 esp_err_t status_handler(httpd_req_t *req) {
+    log_req_headers(req, TG_NET_HTTP);
     char buf[128];
     snprintf(buf, sizeof(buf),
              "{\"heap\":%lu,\"tasks\":%d,\"cpu\":%d}",
@@ -497,6 +513,7 @@ esp_err_t status_handler(httpd_req_t *req) {
 }
 
 esp_err_t hardware_info_handler(httpd_req_t *req) {
+    log_req_headers(req, TG_NET_HTTP);
     char buf[512];
     esp_chip_info_t ci;
     esp_chip_info(&ci);
@@ -526,6 +543,7 @@ esp_err_t hardware_info_handler(httpd_req_t *req) {
 }
 
 esp_err_t capture_handler(httpd_req_t *req) {
+    log_req_headers(req, TG_CTL_CAPT);
     ESP_LOGI(TG_CTL_CAPT, "capture request received");
     // Drain stale queued frames
     camera_fb_t *stale;
@@ -567,6 +585,7 @@ esp_err_t capture_handler(httpd_req_t *req) {
 }
 
 esp_err_t stream_handler(httpd_req_t *req) {
+    log_req_headers(req, TG_CTL_STRM);
     ESP_LOGI(TG_CTL_STRM, "stream client connected, task=%s", pcTaskGetName(NULL));
     httpd_resp_set_type(req, "multipart/x-mixed-replace;boundary=" STREAM_BOUNDARY);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
