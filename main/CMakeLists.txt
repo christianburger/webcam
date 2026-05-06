@@ -4,7 +4,6 @@ idf_component_register(
   "network_manager.c"
   "controller.c"
   "peripherals.c"
-  "poller.c"
   INCLUDE_DIRS "."
   REQUIRES
   esp32-camera
@@ -13,8 +12,6 @@ idf_component_register(
   nvs_flash
   esp_wifi
   esp_http_server
-  esp_http_client
-  mbedtls
   esp_event
   esp_timer
   esp_psram

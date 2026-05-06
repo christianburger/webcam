@@ -5,10 +5,8 @@
 //  ───────────────────
 //  frame_queue   single-producer (camera_task), single-consumer (stream_handler).
 //                Non-blocking send: frame dropped if consumer is slow.
-//                Depth = 1: guarantees two free buffers for DMA + poller at all times.
+//                Depth = 1: guarantees free buffers for DMA while streaming.
 //
-//  poller_task   calls esp_camera_fb_get() directly, independently of frame_queue.
-//                Returns the buffer BEFORE any HTTPS I/O (see poller.c).
 //
 //  esp_camera    fb_get / fb_return are internally thread-safe in the Espressif
 //                driver. An external mutex that holds a lock ACROSS a blocking
@@ -16,9 +14,7 @@
 //
 //                  camera_task  holds mutex, blocks in fb_get() waiting for a
 //                               free buffer — but both buffers are in the queue.
-//                  poller_task  tries to take mutex → blocked forever.
 //                  stream_handler not running → nobody calls fb_return → DEADLOCK.
-//                  Result: poller never builds a POST body, no checkin, feed dies.
 //
 //                camera_safe.{c,h} and camera_mutex are removed entirely.
 //                Delete those two files from the source tree.
@@ -29,8 +25,8 @@
 //              1            <  3 - 1 = 2   ✓
 //
 //  Worst case: fb[0] → queue (stream_handler consuming)
-//              fb[1] → poller (encoding; returned before HTTP call)
-//              fb[2] → DMA   (camera_task capturing next frame)
+//              fb[1] → DMA   (camera_task capturing next frame)
+//              fb[2] → free / available for next capture
 //
 //  This eliminates the "cam_hal: Failed to get frame: timeout" seen when
 //  fb_count=2 / queue_depth=2 stranded all buffers in the queue.
@@ -79,7 +75,6 @@
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
 // frame_queue  –  stream_handler is the ONLY consumer.
-// Poller uses esp_camera_fb_get() directly; it does NOT touch this queue.
 QueueHandle_t frame_queue;
 
 // ─── Camera configuration ─────────────────────────────────────────────────────

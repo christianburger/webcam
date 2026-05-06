@@ -1,191 +1,139 @@
-# Web Cam - ESP32 Camera Web Server
+# Web Cam - ESP32 Camera Web Server (Cloudflare Tunnel Edition)
 
-A high-performance camera streaming solution using ESP32 with integrated web server capabilities.
+This project now exposes the ESP32 web interface directly through a **Cloudflare Tunnel**.
+There is no Cloudflare Worker relay, no KV, and no browser-side frame decryption path.
 
-## Setup
+## Architecture
 
-1.  **Clone the Project:**
-    ```bash
-    git clone <repository_url>
-    cd web_cam
-    ```
+- ESP32 runs the HTTP UI locally (root UI, `/stream`, `/capture`, `/status`, `/hardware`).
+- `cloudflared` runs on a host in the same LAN as the ESP32 and creates an outbound tunnel to Cloudflare.
+- Your domain (`runtracer.com`) maps a hostname (for example `cam.runtracer.com`) to that tunnel.
+- Browser connects to Cloudflare edge over HTTPS and Cloudflare forwards to `http://<esp32-lan-ip>:80`.
 
-2.  **Install Build Dependencies:**
-    Source your ESP-IDF environment.
-    ```bash
-    . /path/to/your/esp-idf/export.sh
-    ```
+## 1) Firmware setup (ESP32)
 
-3.  **Build the Project:**
-    ```bash
-    idf.py build
-    ```
+1. Configure Wi-Fi credentials in `main/network_manager.h`.
+2. Build and flash:
+   ```bash
+   idf.py build
+   idf.py flash monitor
+   ```
+3. After boot, note the ESP32 LAN IP in serial logs (`IP: ...`).
 
-## Hardware Support
+You should be able to open locally:
 
-### Supported Camera Modules
-- OV2640 (Primary - configured in main.c)
-- OV7670, OV7725, NT99141
-- OV3660, OV5640
-- GC2145, GC032A, GC0308
-- BF3005, BF20A6
-- SC030IOT
-- MEGA_CCM
+- `http://web-cam.local/` (mDNS)
+- or `http://<ESP32_LAN_IP>/`
 
-### Camera Configuration
-- **Resolution**: SVGA (800x600)
-- **Format**: JPEG
-- **Quality**: 12 (configurable)
-- **Frame Buffer**: 1 buffer
-- **XCLK Frequency**: 20MHz
+## 2) Cloudflare Zero Trust setup (cloud infrastructure)
 
-### Pin Configuration (ESP32-CAM)
-```c
-Power Down:  GPIO32    |  Data 4:     GPIO36
-Reset:       -1 (NC)   |  Data 3:     GPIO21
-XCLK:        GPIO0     |  Data 1:     GPIO18
-SIOD (SDA):  GPIO26    |  Data 0:     GPIO5
-SIOC (SCL):  GPIO27    |  VSYNC:      GPIO25
-Data 7:      GPIO35    |  HREF:       GPIO23
-Data 6:      GPIO34    |  PCLK:       GPIO22
-Data 5:      GPIO39    |  Data 2:     GPIO19
-```
+1. Log in to Cloudflare dashboard for `runtracer.com`.
+2. Open **Zero Trust** (one-time onboarding if needed).
+3. Go to **Networks > Tunnels**.
+4. Click **Create a tunnel**.
+5. Choose **Cloudflared**.
+6. Name it, e.g. `esp32-webcam`.
+7. Cloudflare will show an install/connect command token for Linux.
 
-## Web Server Features
+Do **not** create Worker routes for this app. The tunnel hostname replaces Worker access.
 
-The server runs on ESP32's WiFi in station mode with the following endpoints:
+## 3) Local `cloudflared` setup on Gentoo host
 
-### HTTP Endpoints
+You already have `net-vpn/cloudflared` installed.
 
-#### Root (`GET /`)
-- Main navigation interface
-- Links to all available functions
-- Basic system status
+### A. Authenticate cloudflared
 
-#### Capture (`GET /capture`)
-- Single frame capture
-- Returns JPEG image
-- Content-Type: image/jpeg
-- Inline display capability
-
-#### Stream (`GET /stream`)
-- Real-time MJPEG video stream
-- Multipart content type: `multipart/x-mixed-replace`
-- Continuous frame delivery
-- Boundary: `123456789000000000000987654321`
-
-#### Status (`GET /status`)
-- System telemetry in JSON format
-- Heap memory usage
-- Active task count
-- CPU frequency
-
-#### Hardware Info (`GET /hardware`)
-- Hardware information in JSON format
-- PSRAM size and features
-- Chip capabilities (WiFi, BT, BLE)
-- Core count and revision
-
-## Technical Architecture
-
-### Task Distribution
-- **Network Task**: Core 1, Priority `configMAX_PRIORITIES - 1`
-- **Camera Task**: Core 0, Priority `configMAX_PRIORITIES - 2`
-- **Frame Processing**: Core 0, Priority `configMAX_PRIORITIES - 3` (disabled)
-
-### Memory Management
-- **Frame Queue**: 2 frame buffers
-- **JPEG Compression**: Quality 12
-- **SVGA Resolution**: 800x600
-- **Stack Sizes**: 8192 bytes for camera/processing tasks
-
-### Network Configuration
-- **WiFi Mode**: Station (STA)
-- **mDNS Hostname**: `web-cam.local`
-- **HTTP Server**: Multiple socket support (max 2)
-- **LRU Cache**: Enabled for connections
-- **Task Watchdog**: Enabled with monitoring
-
-## Configuration
-
-### WiFi Settings
-Update in `main/network_manager.h`:
-```c
-#define WIFI_SSID "your-wifi-name"
-#define WIFI_PASS "your-wifi-password"
-```
-
-### Camera Settings
-Modify in `main/main.c`:
-```c
-.frame_size   = FRAMESIZE_SVGA,  // Resolution
-.jpeg_quality = 12,              // Quality (10-63)
-.fb_count     = 1                // Frame buffers
-```
-
-## Build and Flash
-
-### Prerequisites
-- ESP-IDF v5.5.0
-- ESP32 with PSRAM enabled
-- Camera module (OV2640 recommended)
-
-### Build Commands
 ```bash
-# Configure project
-idf.py menuconfig
-
-# Build project
-idf.py build
-
-# Flash to device
-idf.py flash monitor
+cloudflared tunnel login
 ```
 
-### Required Components
-- esp32-camera (auto-installed via component manager)
-- esp_http_server
-- esp_wifi
-- freertos
-- mdns
+This opens a browser; select `runtracer.com`. Cloudflare writes a cert to `~/.cloudflared/`.
 
-## Usage
+### B. Create named tunnel
 
-1. **Connect to WiFi**: Device connects to configured network
-2. **Find Device**: Accessible at `http://web-cam.local/` via mDNS, or check serial monitor for IP
-3. **Access Web Interface**: Open `http://web-cam.local/` in browser
-4. **Take Photos**: Click "Take Photo" for single capture
-5. **Start Stream**: Click "Start Stream" for live video
+```bash
+cloudflared tunnel create esp32-webcam
+```
 
-## Performance Considerations
+Save the generated tunnel UUID.
 
-- **JPEG Quality**: Set to 12 for optimal size/quality ratio
-- **Task Priorities**: Network task has highest priority
-- **Core Pinning**: Camera operations on Core 0, Network on Core 1
-- **Watchdog Protection**: Enabled for all tasks
-- **PSRAM**: Required for frame buffering
-- **WiFi Power**: Set to maximum (12dBm) for stable connection
+### C. Create config file
+
+Create `~/.cloudflared/config.yml`:
+
+```yaml
+tunnel: <TUNNEL_UUID>
+credentials-file: /home/chris/.cloudflared/<TUNNEL_UUID>.json
+
+ingress:
+  - hostname: cam.runtracer.com
+    service: http://<ESP32_LAN_IP>:80
+  - service: http_status:404
+```
+
+Replace:
+
+- `<TUNNEL_UUID>` with the tunnel UUID
+- `<ESP32_LAN_IP>` with the ESP32 IP from serial logs
+
+### D. Create DNS route in Cloudflare
+
+```bash
+cloudflared tunnel route dns esp32-webcam cam.runtracer.com
+```
+
+This creates/updates a proxied CNAME in Cloudflare DNS.
+
+### E. Run tunnel
+
+```bash
+cloudflared tunnel run esp32-webcam
+```
+
+Then open:
+
+- `https://cam.runtracer.com/`
+- stream: `https://cam.runtracer.com/stream`
+- capture: `https://cam.runtracer.com/capture`
+
+## 4) Run tunnel as a service (recommended)
+
+On systems using systemd (including many Gentoo installs):
+
+```bash
+sudo cloudflared service install
+sudo systemctl enable --now cloudflared
+systemctl status cloudflared
+```
+
+If your Gentoo profile uses OpenRC instead, run `cloudflared` with your own supervised service wrapper and the same `config.yml`.
+
+## 5) Remove old Worker relay assets
+
+The relay path was removed from this repo:
+
+- no poller task
+- no Worker backend dependency
+- no `wrangler.toml`
+
+If you previously deployed a Worker for this project, remove old DNS/routes referencing it to avoid confusion.
+
+## Endpoints served by ESP32
+
+- `GET /` main UI
+- `GET /capture` single JPEG
+- `GET /stream` MJPEG stream
+- `GET /status` runtime telemetry JSON
+- `GET /hardware` hardware capability JSON
 
 ## Troubleshooting
 
-### Common Issues
-1. **Camera Init Failed**: Check pin connections and power supply
-2. **WiFi Connection Failed**: Verify SSID/password in network_manager.h
-3. **Out of Memory**: Ensure PSRAM is enabled in menuconfig
-4. **Slow Streaming**: Reduce JPEG quality or frame size
-
-### Debug Options
-- Enable verbose logging in menuconfig
-- Monitor serial output with `idf.py monitor`
-- Check heap usage via `/status` endpoint
-
-## Hardware Requirements
-
-- **ESP32** with external PSRAM
-- **Camera Module** (OV2640 recommended)
-- **Power Supply**: 5V/2A minimum
-- **WiFi Network**: 2.4GHz support required
-
-## License
-
-This project uses ESP-IDF framework and esp32-camera component.
+1. `https://cam.runtracer.com` loads but no video:
+   - test local first: `http://<ESP32_LAN_IP>/stream`
+   - check `cloudflared` logs for upstream errors.
+2. Tunnel connected but hostname fails:
+   - verify route exists: `cloudflared tunnel route dns ...`
+   - confirm proxied DNS record in Cloudflare.
+3. Intermittent disconnects:
+   - pin ESP32 IP in router DHCP reservation.
+   - reduce Wi-Fi contention / improve signal.

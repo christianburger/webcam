@@ -9,7 +9,6 @@
 //
 //    idf.py monitor | grep " cam|"     ← all camera events
 //    idf.py monitor | grep "cam|init"  ← camera init only
-//    idf.py monitor | grep "poll|"     ← all poller events
 //
 //  Log-level convention used throughout this project:
 //    ESP_LOGE  error path, action required
@@ -25,7 +24,6 @@
 #define TG_CAM   "cam"      // camera driver + capture loop
 #define TG_NET   "net"      // WiFi / mDNS / HTTP server lifecycle
 #define TG_CTL   "ctl"      // HTTP request handlers
-#define TG_POLL  "poll"     // cloud polling task
 #define TG_PERI  "peri"     // peripherals (servos, LED, relay)
 
 // ─── Sub-module combinations  (compile-time string concat) ────────────────────
@@ -36,8 +34,6 @@
 #define TG_CTL_CAPT  TG_CTL  "|capt"   // /capture handler
 #define TG_CTL_STRM  TG_CTL  "|strm"   // /stream handler
 #define TG_CTL_CMD   TG_CTL  "|cmd"    // control handlers (pan/tilt/led/switch)
-#define TG_POLL_TICK TG_POLL "|tick"   // per-checkin outcome
-#define TG_POLL_CMD  TG_POLL "|cmd"    // commands received from backend
 #define TG_PERI_INIT TG_PERI "|init"   // peripheral hardware init
 #define TG_PERI_SRV  TG_PERI "|srv"    // servo moves
 
