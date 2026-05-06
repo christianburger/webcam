@@ -52,9 +52,9 @@ ingress:
   - hostname: ${HOSTNAME_MAIN}
     service: http://127.0.0.1:${PORT}
   - hostname: ${HOSTNAME_STATUS}
-    service: http://127.0.0.1:${PORT}/status
+    service: http://127.0.0.1:${PORT}
   - hostname: ${HOSTNAME_STREAM}
-    service: http://127.0.0.1:${PORT}/stream
+    service: http://127.0.0.1:${PORT}
   - service: http_status:404
 YAML
 }
@@ -66,8 +66,8 @@ update_config_ip_with_sed() {
   # Update service URL following each configured hostname entry.
   sed -i \
     -e "/hostname: ${HOSTNAME_MAIN//\//\\/}/{n;s|^[[:space:]]*service:.*|    service: http://${ip}:${PORT}|;}" \
-    -e "/hostname: ${HOSTNAME_STATUS//\//\\/}/{n;s|^[[:space:]]*service:.*|    service: http://${ip}:${PORT}/status|;}" \
-    -e "/hostname: ${HOSTNAME_STREAM//\//\\/}/{n;s|^[[:space:]]*service:.*|    service: http://${ip}:${PORT}/stream|;}" \
+    -e "/hostname: ${HOSTNAME_STATUS//\//\\/}/{n;s|^[[:space:]]*service:.*|    service: http://${ip}:${PORT}|;}" \
+    -e "/hostname: ${HOSTNAME_STREAM//\//\\/}/{n;s|^[[:space:]]*service:.*|    service: http://${ip}:${PORT}|;}" \
     "$CONFIG_PATH"
 }
 

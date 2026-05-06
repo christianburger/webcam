@@ -86,12 +86,14 @@ ingress:
   - hostname: cam.runtracer.com
     service: http://<ESP32_LAN_IP>:80
   - hostname: cam-status.runtracer.com
-    service: http://<ESP32_LAN_IP>:80/status
+    service: http://<ESP32_LAN_IP>:80
   - hostname: cam-stream.runtracer.com
-    service: http://<ESP32_LAN_IP>:80/stream
+    service: http://<ESP32_LAN_IP>:80
   - service: http_status:404
 ```
 
+> Important: Cloudflared ingress does **not** support putting `/status` or `/stream` in `service:` URLs. Keep `service` at origin root (`http://<ESP32_LAN_IP>:80`), and use request paths (`/status`, `/stream`) in the browser URL.
+>
 > Note: the embedded web UI requests `/stream` and `/status` using relative paths on the same origin, so `cam.runtracer.com` must keep routing to `http://<ESP32_LAN_IP>:80`.
 
 ### D. Create DNS route in Cloudflare
@@ -115,6 +117,7 @@ Then open:
 - capture: `https://cam.runtracer.com/capture`
 - optional dedicated stream hostname: `https://cam-stream.runtracer.com/`
 - optional dedicated status hostname: `https://cam-status.runtracer.com/`
+- when using dedicated hostnames, append endpoint path explicitly (for example `https://cam-status.runtracer.com/status`).
 
 ## 4) Run tunnel as a service (recommended)
 
