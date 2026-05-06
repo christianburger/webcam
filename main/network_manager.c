@@ -1,7 +1,6 @@
 #include "network_manager.h"
 #include "controller.h"
 #include "peripherals.h"
-#include "poller.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -11,12 +10,10 @@
 #include "esp_event.h"
 #include "esp_http_server.h"
 #include "esp_task_wdt.h"
-#include "esp_system.h"
 #include "mdns.h"
 
 static const char *TAG = "network_manager";
 static httpd_handle_t server = NULL;
-static TaskHandle_t   poller_handle = NULL;
 
 static EventGroupHandle_t s_wifi_event_group;
 #define WIFI_CONNECTED_BIT BIT0
@@ -32,7 +29,7 @@ static void initialise_mdns(void) {
 }
 
 static void event_handler(void *arg, esp_event_base_t event_base,
-                           int32_t event_id, void *event_data) {
+                          int32_t event_id, void *event_data) {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
@@ -53,14 +50,14 @@ static void event_handler(void *arg, esp_event_base_t event_base,
 }
 
 static void start_webserver(void) {
-    httpd_config_t cfg   = HTTPD_DEFAULT_CONFIG();
-    cfg.stack_size        = NETWORK_TASK_STACK_SIZE;
-    cfg.task_priority     = NETWORK_TASK_PRIORITY;
-    cfg.core_id           = NETWORK_TASK_CORE_ID;
-    cfg.max_uri_handlers  = 12;
-    cfg.max_open_sockets  = 4;
-    cfg.lru_purge_enable  = true;
-    cfg.uri_match_fn      = httpd_uri_match_wildcard;
+    httpd_config_t cfg = HTTPD_DEFAULT_CONFIG();
+    cfg.stack_size = NETWORK_TASK_STACK_SIZE;
+    cfg.task_priority = NETWORK_TASK_PRIORITY;
+    cfg.core_id = NETWORK_TASK_CORE_ID;
+    cfg.max_uri_handlers = 12;
+    cfg.max_open_sockets = 4;
+    cfg.lru_purge_enable = true;
+    cfg.uri_match_fn = httpd_uri_match_wildcard;
 
     if (httpd_start(&server, &cfg) != ESP_OK) {
         ESP_LOGE(TAG, "httpd_start() failed");
@@ -68,16 +65,6 @@ static void start_webserver(void) {
     }
     controller_register_handlers(server);
     ESP_LOGI(TAG, "Local HTTP server ready (port 80)");
-}
-
-static void start_poller(void) {
-    if (poller_handle != NULL) return;   // already running
-    BaseType_t r = xTaskCreatePinnedToCore(
-        poller_task, "poller_task",
-        POLLER_TASK_STACK, NULL,
-        POLLER_TASK_PRIORITY, &poller_handle,
-        POLLER_TASK_CORE);
-    ESP_LOGI(TAG, "Cloud poller task: %s", r == pdPASS ? "started" : "FAILED");
 }
 
 void network_task(void *pvParameters) {
@@ -103,9 +90,9 @@ void network_task(void *pvParameters) {
 
     esp_event_handler_instance_t h_any, h_ip;
     ESP_ERROR_CHECK(esp_event_handler_instance_register(
-        WIFI_EVENT, ESP_EVENT_ANY_ID,    &event_handler, NULL, &h_any));
+        WIFI_EVENT, ESP_EVENT_ANY_ID, &event_handler, NULL, &h_any));
     ESP_ERROR_CHECK(esp_event_handler_instance_register(
-        IP_EVENT,   IP_EVENT_STA_GOT_IP, &event_handler, NULL, &h_ip));
+        IP_EVENT, IP_EVENT_STA_GOT_IP, &event_handler, NULL, &h_ip));
 
     wifi_config_t wifi_cfg = {
         .sta = { .ssid = WIFI_SSID, .password = WIFI_PASS },
@@ -124,7 +111,6 @@ void network_task(void *pvParameters) {
             if (bits & WIFI_CONNECTED_BIT) {
                 initialise_mdns();
                 start_webserver();
-                start_poller();        // ← cloud polling begins here
             } else if (bits & WIFI_FAIL_BIT) {
                 ESP_LOGE(TAG, "WiFi failed — halting network task");
                 esp_task_wdt_delete(NULL);
