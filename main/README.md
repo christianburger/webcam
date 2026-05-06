@@ -174,7 +174,7 @@ It continuously:
 
 - resolves `web-cam.local` (or your `MDNS_NAME`)
 - checks `http://<resolved-ip>:80/status`
-- rewrites `~/.cloudflared/config.yml` if IP changed or healthcheck fails
+- updates IP in `~/.cloudflared/config.yml` using `sed` if IP changed or healthcheck fails
 - restarts Cloudflared so the tunnel re-establishes with the new upstream IP
 
 Run it like this:
