@@ -162,8 +162,34 @@ If you previously deployed a Worker for this project, remove old DNS/routes refe
 
 Because the ESP32 LAN IP is dynamic, prefer one of these approaches:
 
-1. **Best**: create a DHCP reservation in your router for the ESP32 MAC address so the IP is effectively static.
-2. Use a local DNS name that resolves on your LAN (for example `web-cam.local`) and point Cloudflared at it if your host resolves mDNS reliably.
-3. Regenerate `config.yml` from a small script before starting Cloudflared.
+1. Use a local DNS name that resolves on your LAN (for example `web-cam.local`) and point Cloudflared at it if your host resolves mDNS reliably.
+2. Regenerate `config.yml` from a script and restart Cloudflared when mDNS resolves to a new IP.
 
 You can use an environment variable for the local IP, but only if you expand it before Cloudflared reads `config.yml` (for example with a wrapper script that templates the file). Keep in mind that when IP changes, the tunnel process must reload/restart to pick up the new upstream value.
+
+### mDNS watcher script (auto-rewrite + restart)
+
+This repo now includes `scripts/cloudflared-mdns-watch.sh`.
+It continuously:
+
+- resolves `web-cam.local` (or your `MDNS_NAME`)
+- checks `http://<resolved-ip>:80/status`
+- rewrites `~/.cloudflared/config.yml` if IP changed or healthcheck fails
+- restarts Cloudflared so the tunnel re-establishes with the new upstream IP
+
+Run it like this:
+
+```bash
+export TUNNEL_UUID="e94ed88f-c9e9-4571-bdf9-3cf4e60f49a7"
+export MDNS_NAME="web-cam.local"
+export HOSTNAME_MAIN="cam.runtracer.com"
+export HOSTNAME_STATUS="cam-status.runtracer.com"
+export HOSTNAME_STREAM="cam-stream.runtracer.com"
+./scripts/cloudflared-mdns-watch.sh
+```
+
+Optional variables:
+
+- `CHECK_INTERVAL_SEC` (default `15`)
+- `CONFIG_PATH` (default `~/.cloudflared/config.yml`)
+- `CLOUDFLARED_SERVICE` (default `cloudflared`)
