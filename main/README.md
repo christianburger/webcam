@@ -59,7 +59,7 @@ Save the generated tunnel UUID.
 
 ### C. Create config file
 
-Create `~/.cloudflared/config.yml`:
+Create `~/.cloudflared/config.yml` (single-hostname setup used by the UI by default):
 
 ```yaml
 tunnel: <TUNNEL_UUID>
@@ -75,6 +75,26 @@ Replace:
 
 - `<TUNNEL_UUID>` with the tunnel UUID
 - `<ESP32_LAN_IP>` with the ESP32 IP from serial logs
+
+If you want dedicated hostnames per endpoint (like your current setup), this is also valid:
+
+```yaml
+tunnel: <TUNNEL_UUID>
+credentials-file: /home/chris/.cloudflared/<TUNNEL_UUID>.json
+
+ingress:
+  - hostname: cam.runtracer.com
+    service: http://<ESP32_LAN_IP>:80
+  - hostname: cam-status.runtracer.com
+    service: http://<ESP32_LAN_IP>:80
+  - hostname: cam-stream.runtracer.com
+    service: http://<ESP32_LAN_IP>:80
+  - service: http_status:404
+```
+
+> Important: Cloudflared ingress does **not** support putting `/status` or `/stream` in `service:` URLs. Keep `service` at origin root (`http://<ESP32_LAN_IP>:80`), and use request paths (`/status`, `/stream`) in the browser URL.
+>
+> Note: the embedded web UI requests `/stream` and `/status` using relative paths on the same origin, so `cam.runtracer.com` must keep routing to `http://<ESP32_LAN_IP>:80`. That means `https://cam.runtracer.com/status` should always be valid when `cam.runtracer.com` is routed correctly.
 
 ### D. Create DNS route in Cloudflare
 
@@ -95,6 +115,9 @@ Then open:
 - `https://cam.runtracer.com/`
 - stream: `https://cam.runtracer.com/stream`
 - capture: `https://cam.runtracer.com/capture`
+- optional dedicated stream hostname: `https://cam-stream.runtracer.com/`
+- optional dedicated status hostname: `https://cam-status.runtracer.com/`
+- when using dedicated hostnames, append endpoint path explicitly (for example `https://cam-status.runtracer.com/status`).
 
 ## 4) Run tunnel as a service (recommended)
 
@@ -137,3 +160,85 @@ If you previously deployed a Worker for this project, remove old DNS/routes refe
 3. Intermittent disconnects:
    - pin ESP32 IP in router DHCP reservation.
    - reduce Wi-Fi contention / improve signal.
+
+## Dynamic LAN IP options
+
+Because the ESP32 LAN IP is dynamic, prefer one of these approaches:
+
+1. Use a local DNS name that resolves on your LAN (for example `web-cam.local`) and point Cloudflared at it if your host resolves mDNS reliably.
+2. Regenerate `config.yml` from a script and restart Cloudflared when mDNS resolves to a new IP.
+
+You can use an environment variable for the local IP, but only if you expand it before Cloudflared reads `config.yml` (for example with a wrapper script that templates the file). Keep in mind that when IP changes, the tunnel process must reload/restart to pick up the new upstream value.
+
+### mDNS watcher script (auto-rewrite + restart)
+
+This repo now includes `scripts/cloudflared-mdns-watch.sh`.
+It is for **locally managed tunnels** (where Cloudflared reads ingress from `config.yml`).
+If your systemd unit runs `cloudflared ... --token ...`, that is a **remotely managed tunnel**, and local `config.yml` edits will not update dashboard ingress.
+
+It continuously:
+
+- resolves `web-cam.local` (or your `MDNS_NAME`)
+- checks `http://<resolved-ip>:80/status`
+- updates IP in `~/.cloudflared/config.yml` using `sed` if IP changed or healthcheck fails
+- restarts Cloudflared so the tunnel re-establishes with the new upstream IP
+
+Run it like this:
+
+```bash
+export TUNNEL_UUID="e94ed88f-c9e9-4571-bdf9-3cf4e60f49a7"
+export MDNS_NAME="web-cam.local"
+export HOSTNAME_MAIN="cam.runtracer.com"
+# Optional (leave unset to only use HOSTNAME_MAIN):
+export HOSTNAME_STATUS="cam-status.runtracer.com"
+export HOSTNAME_STREAM="cam-stream.runtracer.com"
+./scripts/cloudflared-mdns-watch.sh
+```
+
+Optional variables:
+
+- `CHECK_INTERVAL_SEC` (default `15`)
+- `CONFIG_PATH` (default `~/.cloudflared/config.yml`)
+- `CLOUDFLARED_SERVICE` (default `cloudflared`)
+
+## Error 524 troubleshooting (Cloudflare works, Host errors)
+
+If Cloudflare dashboard shows published apps but browser gets **524 timeout**, test in this order:
+
+1. From the machine running Cloudflared, test origin directly:
+   - `curl -v --max-time 5 http://192.168.0.175:80/status`
+   - `curl -I --max-time 5 http://192.168.0.175:80/`
+2. Check Cloudflared mode:
+   - `systemctl cat cloudflared | grep -E -- '--token|--config'`
+   - If you see `--token`, local `config.yml`/watcher changes are ignored.
+3. Check Cloudflared logs:
+   - `journalctl -u cloudflared -n 200 --no-pager`
+4. Verify LAN reachability/firewall from Cloudflared host to ESP32:
+   - `ping 192.168.0.175`
+   - ensure no host firewall blocks outbound to `192.168.0.175:80`
+
+If step (1) fails, fix local network/origin first; Cloudflare cannot proxy an unreachable local origin.
+
+## Local mock origin (test tunnel without ESP32)
+
+If you want to test Cloudflare Tunnel while the ESP32 is powered off, run:
+
+```bash
+go run ./tools/mock_origin/main.go
+```
+
+This serves compatible test endpoints:
+
+- `/`
+- `/status`
+- `/capture`
+- `/stream` (MJPEG multipart)
+- `/hardware`
+
+Default listen port is `8080`. To match your tunnel origin on port `80`:
+
+```bash
+sudo PORT=80 go run ./tools/mock_origin/main.go
+```
+
+Then point the tunnel origin service to `http://127.0.0.1:8080` (or `:80`) and validate from browser/curl.
