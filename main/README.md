@@ -247,7 +247,7 @@ Note: `curl -I` sends `HEAD`; this firmware only registers `GET` handlers, so `4
 
 If curl `GET` works but browser fails with 431, it is almost always browser cookie/header bloat on that hostname.
 
-Firmware note: this project now increases `esp_http_server` request header buffer to better tolerate Cloudflare-added headers.
+Firmware note: some ESP-IDF versions expose larger header-buffer controls in `httpd_config_t`, while others do not. This repo keeps portable defaults and relies on request tracing logs for diagnosis.
 
 ## Correlating Cloudflare requests with ESP32 serial logs
 
