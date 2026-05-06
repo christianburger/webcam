@@ -219,6 +219,30 @@ If Cloudflare dashboard shows published apps but browser gets **524 timeout**, t
 
 If step (1) fails, fix local network/origin first; Cloudflare cannot proxy an unreachable local origin.
 
+## Error 431 troubleshooting (`Request Header Fields Too Large`)
+
+If browser shows:
+
+- `GET https://cam.runtracer.com/ 431 (Request Header Fields Too Large)`
+- `GET /favicon.ico 431`
+
+then the request reached Cloudflare, but request headers are too large before origin handling.
+
+Most common causes:
+
+1. Very large/stale cookies for `runtracer.com` (often from repeated auth redirects or old app cookies).
+2. Cloudflare Access / WAF policy loops adding large auth headers/cookies.
+3. Browser extensions injecting large headers.
+
+Quick fixes:
+
+1. Clear cookies/site data for `cam.runtracer.com` (or all `runtracer.com` data), then hard refresh.
+2. Test in private/incognito window (no extensions, clean cookie jar).
+3. Test with curl (minimal headers): `curl -I https://cam.runtracer.com/`
+4. In Cloudflare dashboard, verify no Access policy is forcing repeated redirects/tokens for this hostname.
+
+If curl works but browser fails with 431, it is almost always browser cookie/header bloat on that hostname.
+
 ## Local mock origin (test tunnel without ESP32)
 
 If you want to test Cloudflare Tunnel while the ESP32 is powered off, run:
