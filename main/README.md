@@ -94,7 +94,7 @@ ingress:
 
 > Important: Cloudflared ingress does **not** support putting `/status` or `/stream` in `service:` URLs. Keep `service` at origin root (`http://<ESP32_LAN_IP>:80`), and use request paths (`/status`, `/stream`) in the browser URL.
 >
-> Note: the embedded web UI requests `/stream` and `/status` using relative paths on the same origin, so `cam.runtracer.com` must keep routing to `http://<ESP32_LAN_IP>:80`.
+> Note: the embedded web UI requests `/stream` and `/status` using relative paths on the same origin, so `cam.runtracer.com` must keep routing to `http://<ESP32_LAN_IP>:80`. That means `https://cam.runtracer.com/status` should always be valid when `cam.runtracer.com` is routed correctly.
 
 ### D. Create DNS route in Cloudflare
 
@@ -173,6 +173,9 @@ You can use an environment variable for the local IP, but only if you expand it 
 ### mDNS watcher script (auto-rewrite + restart)
 
 This repo now includes `scripts/cloudflared-mdns-watch.sh`.
+It is for **locally managed tunnels** (where Cloudflared reads ingress from `config.yml`).
+If your systemd unit runs `cloudflared ... --token ...`, that is a **remotely managed tunnel**, and local `config.yml` edits will not update dashboard ingress.
+
 It continuously:
 
 - resolves `web-cam.local` (or your `MDNS_NAME`)
@@ -186,6 +189,7 @@ Run it like this:
 export TUNNEL_UUID="e94ed88f-c9e9-4571-bdf9-3cf4e60f49a7"
 export MDNS_NAME="web-cam.local"
 export HOSTNAME_MAIN="cam.runtracer.com"
+# Optional (leave unset to only use HOSTNAME_MAIN):
 export HOSTNAME_STATUS="cam-status.runtracer.com"
 export HOSTNAME_STREAM="cam-stream.runtracer.com"
 ./scripts/cloudflared-mdns-watch.sh
@@ -196,3 +200,21 @@ Optional variables:
 - `CHECK_INTERVAL_SEC` (default `15`)
 - `CONFIG_PATH` (default `~/.cloudflared/config.yml`)
 - `CLOUDFLARED_SERVICE` (default `cloudflared`)
+
+## Error 524 troubleshooting (Cloudflare works, Host errors)
+
+If Cloudflare dashboard shows published apps but browser gets **524 timeout**, test in this order:
+
+1. From the machine running Cloudflared, test origin directly:
+   - `curl -v --max-time 5 http://192.168.0.175:80/status`
+   - `curl -I --max-time 5 http://192.168.0.175:80/`
+2. Check Cloudflared mode:
+   - `systemctl cat cloudflared | grep -E -- '--token|--config'`
+   - If you see `--token`, local `config.yml`/watcher changes are ignored.
+3. Check Cloudflared logs:
+   - `journalctl -u cloudflared -n 200 --no-pager`
+4. Verify LAN reachability/firewall from Cloudflared host to ESP32:
+   - `ping 192.168.0.175`
+   - ensure no host firewall blocks outbound to `192.168.0.175:80`
+
+If step (1) fails, fix local network/origin first; Cloudflare cannot proxy an unreachable local origin.

@@ -7,8 +7,8 @@ set -euo pipefail
 MDNS_NAME="${MDNS_NAME:-web-cam.local}"
 PORT="${PORT:-80}"
 HOSTNAME_MAIN="${HOSTNAME_MAIN:-cam.runtracer.com}"
-HOSTNAME_STATUS="${HOSTNAME_STATUS:-cam-status.runtracer.com}"
-HOSTNAME_STREAM="${HOSTNAME_STREAM:-cam-stream.runtracer.com}"
+HOSTNAME_STATUS="${HOSTNAME_STATUS:-}"
+HOSTNAME_STREAM="${HOSTNAME_STREAM:-}"
 TUNNEL_UUID="${TUNNEL_UUID:-}"
 CREDENTIALS_FILE="${CREDENTIALS_FILE:-$HOME/.cloudflared/${TUNNEL_UUID}.json}"
 CONFIG_PATH="${CONFIG_PATH:-$HOME/.cloudflared/config.yml}"
@@ -20,6 +20,19 @@ if [[ -z "${TUNNEL_UUID}" ]]; then
   echo "ERROR: TUNNEL_UUID is required" >&2
   exit 1
 fi
+
+assert_locally_managed_tunnel() {
+  # This script edits local config.yml ingress. It cannot control remotely-managed
+  # token tunnels configured only from the Cloudflare dashboard.
+  if systemctl cat "$CLOUDFLARED_SERVICE" >/dev/null 2>&1; then
+    if systemctl cat "$CLOUDFLARED_SERVICE" | grep -q -- "--token"; then
+      echo "ERROR: ${CLOUDFLARED_SERVICE} is running with --token (remotely managed tunnel)." >&2
+      echo "ERROR: Local sed edits to ${CONFIG_PATH} will not change dashboard ingress." >&2
+      echo "ERROR: Use a locally-managed tunnel (config.yml) or update origin via Cloudflare API." >&2
+      exit 2
+    fi
+  fi
+}
 
 resolve_ip() {
   local ip=""
@@ -51,10 +64,8 @@ credentials-file: ${CREDENTIALS_FILE}
 ingress:
   - hostname: ${HOSTNAME_MAIN}
     service: http://127.0.0.1:${PORT}
-  - hostname: ${HOSTNAME_STATUS}
-    service: http://127.0.0.1:${PORT}
-  - hostname: ${HOSTNAME_STREAM}
-    service: http://127.0.0.1:${PORT}
+$( [[ -n "${HOSTNAME_STATUS}" ]] && printf "  - hostname: %s\n    service: http://127.0.0.1:%s\n" "${HOSTNAME_STATUS}" "${PORT}" )
+$( [[ -n "${HOSTNAME_STREAM}" ]] && printf "  - hostname: %s\n    service: http://127.0.0.1:%s\n" "${HOSTNAME_STREAM}" "${PORT}" )
   - service: http_status:404
 YAML
 }
@@ -66,9 +77,14 @@ update_config_ip_with_sed() {
   # Update service URL following each configured hostname entry.
   sed -i \
     -e "/hostname: ${HOSTNAME_MAIN//\//\\/}/{n;s|^[[:space:]]*service:.*|    service: http://${ip}:${PORT}|;}" \
-    -e "/hostname: ${HOSTNAME_STATUS//\//\\/}/{n;s|^[[:space:]]*service:.*|    service: http://${ip}:${PORT}|;}" \
-    -e "/hostname: ${HOSTNAME_STREAM//\//\\/}/{n;s|^[[:space:]]*service:.*|    service: http://${ip}:${PORT}|;}" \
     "$CONFIG_PATH"
+
+  if [[ -n "$HOSTNAME_STATUS" ]]; then
+    sed -i -e "/hostname: ${HOSTNAME_STATUS//\//\\/}/{n;s|^[[:space:]]*service:.*|    service: http://${ip}:${PORT}|;}" "$CONFIG_PATH"
+  fi
+  if [[ -n "$HOSTNAME_STREAM" ]]; then
+    sed -i -e "/hostname: ${HOSTNAME_STREAM//\//\\/}/{n;s|^[[:space:]]*service:.*|    service: http://${ip}:${PORT}|;}" "$CONFIG_PATH"
+  fi
 }
 
 restart_cloudflared() {
@@ -87,6 +103,7 @@ healthcheck() {
 
 last_ip=""
 [[ -f "$STATE_FILE" ]] && last_ip="$(cat "$STATE_FILE" 2>/dev/null || true)"
+assert_locally_managed_tunnel
 
 while true; do
   current_ip="$(resolve_ip || true)"
