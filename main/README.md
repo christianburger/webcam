@@ -247,6 +247,31 @@ Note: `curl -I` sends `HEAD`; this firmware only registers `GET` handlers, so `4
 
 If curl `GET` works but browser fails with 431, it is almost always browser cookie/header bloat on that hostname.
 
+Firmware note: this project now increases `esp_http_server` request header buffer to better tolerate Cloudflare-added headers.
+
+## Correlating Cloudflare requests with ESP32 serial logs
+
+To confirm `https://cam.runtracer.com/` reaches the ESP32, the handlers log selected headers (`CF-Ray`, `CF-Connecting-IP`, `X-Forwarded-For`, etc.) to serial.
+
+ESP32 serial monitor:
+
+```bash
+idf.py monitor
+```
+
+Cloudflared service logs on host:
+
+```bash
+journalctl -u cloudflared -f
+```
+
+When reproducing a request, compare:
+
+- `CF-Ray` value in browser response headers / curl output
+- `CF-Ray` printed by ESP32 serial handler logs
+
+If Cloudflared shows request attempts but ESP32 prints nothing, traffic is not reaching origin HTTP server.
+
 ## Local mock origin (test tunnel without ESP32)
 
 If you want to test Cloudflare Tunnel while the ESP32 is powered off, run:
