@@ -238,10 +238,14 @@ Quick fixes:
 
 1. Clear cookies/site data for `cam.runtracer.com` (or all `runtracer.com` data), then hard refresh.
 2. Test in private/incognito window (no extensions, clean cookie jar).
-3. Test with curl (minimal headers): `curl -I https://cam.runtracer.com/`
+3. Test with curl (minimal headers) using `GET` (not `HEAD`):
+   - `curl -sS -o /dev/null -w "%{http_code}\n" https://cam.runtracer.com/`
+   - `curl -sS -o /dev/null -w "%{http_code}\n" https://cam.runtracer.com/status`
 4. In Cloudflare dashboard, verify no Access policy is forcing repeated redirects/tokens for this hostname.
 
-If curl works but browser fails with 431, it is almost always browser cookie/header bloat on that hostname.
+Note: `curl -I` sends `HEAD`; this firmware only registers `GET` handlers, so `405` for `HEAD` is expected and does not prove tunnel failure.
+
+If curl `GET` works but browser fails with 431, it is almost always browser cookie/header bloat on that hostname.
 
 ## Local mock origin (test tunnel without ESP32)
 
