@@ -513,6 +513,7 @@ esp_err_t status_handler(httpd_req_t *req) {
 }
 
 esp_err_t hardware_info_handler(httpd_req_t *req) {
+    log_req_headers(req, TG_NET_HTTP);
     char buf[512];
     esp_chip_info_t ci;
     esp_chip_info(&ci);
@@ -542,6 +543,7 @@ esp_err_t hardware_info_handler(httpd_req_t *req) {
 }
 
 esp_err_t capture_handler(httpd_req_t *req) {
+    log_req_headers(req, TG_CTL_CAPT);
     ESP_LOGI(TG_CTL_CAPT, "capture request received");
     // Drain stale queued frames
     camera_fb_t *stale;
@@ -583,6 +585,7 @@ esp_err_t capture_handler(httpd_req_t *req) {
 }
 
 esp_err_t stream_handler(httpd_req_t *req) {
+    log_req_headers(req, TG_CTL_STRM);
     ESP_LOGI(TG_CTL_STRM, "stream client connected, task=%s", pcTaskGetName(NULL));
     httpd_resp_set_type(req, "multipart/x-mixed-replace;boundary=" STREAM_BOUNDARY);
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");

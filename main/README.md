@@ -251,7 +251,7 @@ Firmware note: this project now increases `esp_http_server` request header buffe
 
 ## Correlating Cloudflare requests with ESP32 serial logs
 
-To confirm `https://cam.runtracer.com/` reaches the ESP32, the handlers log selected headers (`CF-Ray`, `CF-Connecting-IP`, `X-Forwarded-For`, etc.) to serial.
+To confirm `https://cam.runtracer.com/` reaches the ESP32, the handlers for `/`, `/status`, `/capture`, and `/stream` log selected headers (`CF-Ray`, `CF-Connecting-IP`, `X-Forwarded-For`, etc.) to serial.
 
 ESP32 serial monitor:
 
