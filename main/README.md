@@ -59,7 +59,7 @@ Save the generated tunnel UUID.
 
 ### C. Create config file
 
-Create `~/.cloudflared/config.yml`:
+Create `~/.cloudflared/config.yml` (single-hostname setup used by the UI by default):
 
 ```yaml
 tunnel: <TUNNEL_UUID>
@@ -75,6 +75,24 @@ Replace:
 
 - `<TUNNEL_UUID>` with the tunnel UUID
 - `<ESP32_LAN_IP>` with the ESP32 IP from serial logs
+
+If you want dedicated hostnames per endpoint (like your current setup), this is also valid:
+
+```yaml
+tunnel: <TUNNEL_UUID>
+credentials-file: /home/chris/.cloudflared/<TUNNEL_UUID>.json
+
+ingress:
+  - hostname: cam.runtracer.com
+    service: http://<ESP32_LAN_IP>:80
+  - hostname: cam-status.runtracer.com
+    service: http://<ESP32_LAN_IP>:80/status
+  - hostname: cam-stream.runtracer.com
+    service: http://<ESP32_LAN_IP>:80/stream
+  - service: http_status:404
+```
+
+> Note: the embedded web UI requests `/stream` and `/status` using relative paths on the same origin, so `cam.runtracer.com` must keep routing to `http://<ESP32_LAN_IP>:80`.
 
 ### D. Create DNS route in Cloudflare
 
@@ -95,6 +113,8 @@ Then open:
 - `https://cam.runtracer.com/`
 - stream: `https://cam.runtracer.com/stream`
 - capture: `https://cam.runtracer.com/capture`
+- optional dedicated stream hostname: `https://cam-stream.runtracer.com/`
+- optional dedicated status hostname: `https://cam-status.runtracer.com/`
 
 ## 4) Run tunnel as a service (recommended)
 
@@ -137,3 +157,13 @@ If you previously deployed a Worker for this project, remove old DNS/routes refe
 3. Intermittent disconnects:
    - pin ESP32 IP in router DHCP reservation.
    - reduce Wi-Fi contention / improve signal.
+
+## Dynamic LAN IP options
+
+Because the ESP32 LAN IP is dynamic, prefer one of these approaches:
+
+1. **Best**: create a DHCP reservation in your router for the ESP32 MAC address so the IP is effectively static.
+2. Use a local DNS name that resolves on your LAN (for example `web-cam.local`) and point Cloudflared at it if your host resolves mDNS reliably.
+3. Regenerate `config.yml` from a small script before starting Cloudflared.
+
+You can use an environment variable for the local IP, but only if you expand it before Cloudflared reads `config.yml` (for example with a wrapper script that templates the file). Keep in mind that when IP changes, the tunnel process must reload/restart to pick up the new upstream value.
