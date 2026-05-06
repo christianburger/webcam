@@ -58,8 +58,6 @@ static void start_webserver(void) {
     cfg.max_open_sockets = 4;
     cfg.lru_purge_enable = true;
     cfg.uri_match_fn = httpd_uri_match_wildcard;
-    cfg.max_req_hdr_len = 2048;   // tolerate Cloudflare-added headers
-    cfg.max_uri_len = 512;
 
     if (httpd_start(&server, &cfg) != ESP_OK) {
         ESP_LOGE(TAG, "httpd_start() failed");
