@@ -58,6 +58,8 @@ static void start_webserver(void) {
     cfg.max_open_sockets = 4;
     cfg.lru_purge_enable = true;
     cfg.uri_match_fn = httpd_uri_match_wildcard;
+    ESP_LOGI(TAG, "HTTP parser limits: hdr=%d uri=%d",
+             CONFIG_HTTPD_MAX_REQ_HDR_LEN, CONFIG_HTTPD_MAX_URI_LEN);
 
     if (httpd_start(&server, &cfg) != ESP_OK) {
         ESP_LOGE(TAG, "httpd_start() failed");
