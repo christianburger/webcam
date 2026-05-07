@@ -3,6 +3,8 @@
 This project now exposes the ESP32 web interface directly through a **Cloudflare Tunnel**.
 There is no Cloudflare Worker relay, no KV, and no browser-side frame decryption path.
 
+For a focused Cloudflare-only operational guide (tunnel modes, auth, 431/524 playbook), see [`../cloudfare.md`](../cloudfare.md).
+
 ## Architecture
 
 - ESP32 runs the HTTP UI locally (root UI, `/stream`, `/capture`, `/status`, `/hardware`).
