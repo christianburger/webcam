@@ -252,6 +252,7 @@ Firmware note: some ESP-IDF versions expose larger header-buffer controls in `ht
 ## Correlating Cloudflare requests with ESP32 serial logs
 
 To confirm `https://cam.runtracer.com/` reaches the ESP32, the handlers for `/`, `/status`, `/capture`, and `/stream` log selected headers (`CF-Ray`, `CF-Connecting-IP`, `X-Forwarded-For`, etc.) to serial.
+The firmware also prints parser limits at server start and warns when a request has no Cloudflare forwarding headers.
 
 ESP32 serial monitor:
 

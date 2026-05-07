@@ -460,6 +460,7 @@ static void send_err(httpd_req_t *req, const char *msg) {
 
 static void log_req_headers(httpd_req_t *req, const char *tag) {
     size_t approx = 0;
+    bool has_cf = false;
     const char *keys[] = { "Host", "User-Agent", "CF-Ray", "CF-Connecting-IP", "X-Forwarded-For", "CF-IPCountry" };
     char v[160];
     for (size_t i = 0; i < sizeof(keys)/sizeof(keys[0]); i++) {
@@ -467,9 +468,13 @@ static void log_req_headers(httpd_req_t *req, const char *tag) {
         if (n > 0) approx += n + 4 + strlen(keys[i]); // value + ": " + key
         if (n > 0 && httpd_req_get_hdr_value_str(req, keys[i], v, sizeof(v)) == ESP_OK) {
             ESP_LOGI(tag, "hdr %s=%s", keys[i], v);
+            if (!strcmp(keys[i], "CF-Ray") || !strcmp(keys[i], "CF-Connecting-IP")) has_cf = true;
         }
     }
     ESP_LOGI(tag, "req uri=%s method=%d approx_hdr_bytes=%u", req->uri, (int)req->method, (unsigned)approx);
+    if (!has_cf) {
+        ESP_LOGW(tag, "request has no Cloudflare forwarding headers (likely local/LAN direct request)");
+    }
 }
 
 static bool get_jpeg(camera_fb_t *pic, uint8_t **out_buf, size_t *out_len, bool *converted) {
