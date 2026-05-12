@@ -1,27 +1,34 @@
 import { Component, OnInit } from '@angular/core';
-import { NgFor } from '@angular/common';
-import { RouterLink } from '@angular/router';
 import { CameraApiService } from '../services/camera-api.service';
-import { CameraSummary } from '../models/camera.models';
+import { CameraSummary } from '../models/camera-models';
+import { DashboardHeroComponent } from './components/dashboard-hero.component';
+import { CameraListComponent } from './components/camera-list.component';
+
+const SEEDED_CAMERAS: CameraSummary[] = [
+  { id: 'cam-1', name: 'ESP32-CAM Front Door', host: 'web-cam.local', port: 80, uri: 'http://web-cam.local/' }
+];
 
 @Component({
   standalone: true,
-  imports: [NgFor, RouterLink],
+  imports: [DashboardHeroComponent, CameraListComponent],
   template: `
-    <main><h1>Camera Dashboard</h1><p>Select a relayed camera.</p>
-    <section class="grid">
-      <article *ngFor="let c of cameras">
-        <h3>{{c.name}}</h3>
-        <p><b>ID:</b> {{c.id}}</p>
-        <p><b>Relay target:</b> {{c.host}}:{{c.port}}</p>
-        <a [routerLink]="['/camera', c.id]">Open camera</a>
-      </article>
-    </section></main>
+    <main class="dashboard">
+      <app-dashboard-hero [total]="cameras.length" [online]="0"></app-dashboard-hero>
+
+      <section class="section">
+        <h3>Registered Cameras</h3>
+        <app-camera-list [cameras]="cameras"></app-camera-list>
+      </section>
+    </main>
   `,
-  styles: ['main{padding:1rem}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}article{background:#1b1b1b;padding:12px;border-radius:8px}a{color:#7fd2ff}']
+  styles: ['.dashboard{padding:1.25rem;display:grid;gap:1rem}.section h3{margin:.2rem 0 .75rem}']
 })
 export class DashboardComponent implements OnInit {
-  cameras: CameraSummary[] = [];
+  cameras: CameraSummary[] = [...SEEDED_CAMERAS];
   constructor(private api: CameraApiService) {}
-  ngOnInit(): void { this.api.cameras().subscribe(v => this.cameras = v); }
+  ngOnInit(): void {
+    this.api.cameras().subscribe(v => {
+      if (v.length > 0) this.cameras = v;
+    });
+  }
 }
