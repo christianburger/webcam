@@ -21,6 +21,22 @@ java -version
 mvn -v
 ```
 
+## Exact Spring Initializr bootstrap
+Use these exact values:
+- Group: `com.runtracer`
+- Artifact/Name: `relay-backend`
+- Package: `com.runtracer.relaybackend`
+- Java: `21`
+- Boot: `3.5.x` (latest stable on Initializr)
+- Dependencies: `web, websocket, actuator, validation, security`
+
+CLI download:
+```bash
+mkdir -p backend
+curl -fsSL "https://start.spring.io/starter.zip?type=maven-project&language=java&bootVersion=3.5.0&baseDir=relay-backend&groupId=com.runtracer&artifactId=relay-backend&name=relay-backend&description=ESP32-CAM%20relay%20backend&packageName=com.runtracer.relaybackend&packaging=jar&javaVersion=21&dependencies=web,websocket,actuator,validation,security" -o /tmp/relay-backend.zip
+unzip -q /tmp/relay-backend.zip -d backend
+```
+
 ## Suggested endpoints
 - `GET /api/cameras`
 - `GET /api/cameras/{id}/status`

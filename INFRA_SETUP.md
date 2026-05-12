@@ -65,27 +65,69 @@ mkdir -p backend frontend
 
 ---
 
-## 4) Bootstrap backend (Spring Boot)
+## 4) Bootstrap backend (Spring Boot) — exact Initializr choices
 
-Generate Spring Boot app (`backend/relay-backend`) with:
-- Java 21
-- Spring Web
-- Spring WebSocket
-- Spring Boot Actuator
-- Spring Security (optional)
+Use **Spring Initializr** with the following exact values:
 
-Suggested API contract:
+- Project: **Maven**
+- Language: **Java**
+- Spring Boot: **3.5.x (latest stable shown by Initializr)**
+- Group: **com.runtracer**
+- Artifact: **relay-backend**
+- Name: **relay-backend**
+- Package name: **com.runtracer.relaybackend**
+- Packaging: **Jar**
+- Java: **21**
+- Dependencies:
+  - **Spring Web**
+  - **Spring WebSocket**
+  - **Spring Boot Actuator**
+  - **Validation**
+  - **Spring Security**
+
+### 4.1 One-command download from Initializr (recommended)
+
+From repo root:
+
+```bash
+mkdir -p backend
+curl -fsSL "https://start.spring.io/starter.zip?type=maven-project&language=java&bootVersion=3.5.0&baseDir=relay-backend&groupId=com.runtracer&artifactId=relay-backend&name=relay-backend&description=ESP32-CAM%20relay%20backend&packageName=com.runtracer.relaybackend&packaging=jar&javaVersion=21&dependencies=web,websocket,actuator,validation,security" -o /tmp/relay-backend.zip
+unzip -q /tmp/relay-backend.zip -d backend
+```
+
+This creates:
+
+```text
+backend/relay-backend
+```
+
+### 4.2 Set runtracer URI in backend config
+
+Edit `backend/relay-backend/src/main/resources/application.yml`:
+
+```yaml
+server:
+  port: 8080
+
+app:
+  public-base-url: https://runtracer.com
+  camera:
+    resolve-ttl-seconds: 60
+```
+
+### 4.3 API contract (backend-owned endpoints)
 - `GET /api/cameras`
 - `POST /api/cameras/{id}/session/start`
 - `POST /api/cameras/{id}/session/stop`
 - `GET /api/cameras/{id}/status`
 - `GET /api/cameras/{id}/frame/latest`
+- `GET /api/health`
 
-Backend responsibilities:
-- Resolve camera hostnames (mDNS like `cam-a.local`).
+### 4.4 Backend responsibilities
+- Resolve camera hostnames (mDNS, e.g. `cam-a.local`).
 - Cache resolved IP with TTL and re-resolve on failure.
-- Call ESP32 endpoints (`/status`, `/stream`, `/capture`, etc.) on LAN.
-- Normalize and relay responses to SPA.
+- Call ESP32 endpoints (`/status`, `/stream`, `/capture`) on LAN.
+- Normalize and relay payloads to SPA.
 
 ---
 
