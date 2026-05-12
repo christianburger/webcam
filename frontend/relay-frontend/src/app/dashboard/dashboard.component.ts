@@ -2,7 +2,7 @@ import { Component, OnInit } from '@angular/core';
 import { NgFor } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { CameraApiService } from '../services/camera-api.service';
-import { CameraSummary } from '../models/camera.models';
+import { CameraSummary } from '../models/camera-models';
 
 @Component({
   standalone: true,
