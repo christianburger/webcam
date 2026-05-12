@@ -32,7 +32,7 @@ This guide implements the architecture you described:
 ```bash
 sudo emerge --sync
 sudo emerge -avuDN @world
-sudo emerge -av dev-java/openjdk:21 dev-java/maven net-libs/nodejs
+sudo emerge -av dev-java/openjdk:21 dev-java/maven-bin net-libs/nodejs
 sudo npm install -g @angular/cli
 ```
 

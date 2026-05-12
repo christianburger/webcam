@@ -16,7 +16,7 @@ Spring Boot is the gateway for both SPA delivery and camera API relay.
 ## Gentoo install quick commands
 ```bash
 sudo emerge --sync
-sudo emerge -av dev-java/openjdk:21 dev-java/maven
+sudo emerge -av dev-java/openjdk:21 dev-java/maven-bin
 java -version
 mvn -v
 ```
