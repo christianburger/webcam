@@ -1,21 +1,25 @@
 # ESP32-CAM Relay Infrastructure Setup (Angular + Spring Boot)
 
-This guide replaces direct use of the ESP32-CAM web interface with a custom stack:
+This guide implements the architecture you described:
 
-- **Backend:** Java Spring Boot API/gateway
-- **Frontend:** Angular SPA
-- **Device:** ESP32-CAM on local network
-- **Public/API base URL:** `https://runtracer.com`
+1. User opens a **single public URL** behind Cloudflare Access.
+2. User authenticates with Cloudflare.
+3. Browser loads Angular SPA.
+4. SPA calls backend API endpoints.
+5. Backend resolves camera mDNS/LAN IP, calls ESP32 endpoints, and relays data back to SPA.
+
+- **Single public URL:** `https://runtracer.com`
+- **Cloudflare Tunnel public hostname:** `runtracer.com`
+- **Backend role:** API + camera relay + optional static SPA hosting
+- **Frontend role:** UI only
 
 ---
 
-## 1) Host profile (detected / provided)
+## 1) Host profile (provided)
 
-Use these instructions for:
-
-- OS: **Gentoo Linux x86_64**
-- Kernel: **7.0.5-burger**
-- Shell: **bash 5.3.9**
+- OS: Gentoo Linux x86_64
+- Kernel: 7.0.5-burger
+- Shell: bash 5.3.9
 - DE/WM: Plasma 6.6.4 / kwin
 - CPU: AMD Ryzen 5 1600
 - GPU: NVIDIA GTX 1650
@@ -25,57 +29,35 @@ Use these instructions for:
 
 ## 2) Install required infrastructure on Gentoo
 
-### 2.1 Sync portage and update world
 ```bash
 sudo emerge --sync
 sudo emerge -avuDN @world
+sudo emerge -av dev-java/openjdk:21 dev-java/maven net-libs/nodejs
+sudo npm install -g @angular/cli
 ```
 
-### 2.2 Install Java 21 (OpenJDK)
-```bash
-sudo emerge -av dev-java/openjdk:21
-```
+Verify:
 
-Set Java 21 as default:
 ```bash
-sudo eselect java-vm list
-sudo eselect java-vm set system <INDEX_OF_OPENJDK_21>
 java -version
-```
-
-### 2.3 Install Maven
-```bash
-sudo emerge -av dev-java/maven
 mvn -v
-```
-
-### 2.4 Install Node.js LTS + npm
-```bash
-sudo emerge -av net-libs/nodejs
 node -v
 npm -v
-```
-
-### 2.5 Install Angular CLI
-```bash
-sudo npm install -g @angular/cli
 ng version
 ```
 
-### 2.6 Optional (recommended): Docker + Compose
+Optional Docker:
+
 ```bash
 sudo emerge -av app-containers/docker app-containers/docker-cli
 sudo rc-update add docker default
 sudo rc-service docker start
 sudo usermod -aG docker "$USER"
 ```
-Log out/in once after adding your user to `docker` group.
 
 ---
 
-## 3) Create backend/frontend folders
-
-From repository root:
+## 3) Create folders
 
 ```bash
 mkdir -p backend frontend
@@ -85,48 +67,25 @@ mkdir -p backend frontend
 
 ## 4) Bootstrap backend (Spring Boot)
 
-### 4.1 Generate Spring Boot project
-Use Spring Initializr with:
-- Group: `com.runtracer`
-- Artifact: `relay-backend`
-- Name: `relay-backend`
-- Java: 21
-- Dependencies:
-  - Spring Web
-  - Spring WebSocket
-  - Spring Boot Actuator
-  - Spring Security (optional)
+Generate Spring Boot app (`backend/relay-backend`) with:
+- Java 21
+- Spring Web
+- Spring WebSocket
+- Spring Boot Actuator
+- Spring Security (optional)
 
-Put generated project under:
+Suggested API contract:
+- `GET /api/cameras`
+- `POST /api/cameras/{id}/session/start`
+- `POST /api/cameras/{id}/session/stop`
+- `GET /api/cameras/{id}/status`
+- `GET /api/cameras/{id}/frame/latest`
 
-```text
-backend/relay-backend
-```
-
-### 4.2 Backend base URL config
-Set your backend public URL to:
-
-```text
-https://runtracer.com
-```
-
-For local dev, keep localhost profile and production profile separate.
-
-Example `application.yml` idea:
-- dev API root: `http://localhost:8080`
-- prod API root: `https://runtracer.com`
-
-### 4.3 Suggested first API endpoints
-- `POST /api/camera/session/start`
-- `POST /api/camera/session/stop`
-- `GET /api/camera/frame/latest`
-- `GET /api/health`
-
-### 4.4 Run backend
-```bash
-cd backend/relay-backend
-./mvnw spring-boot:run
-```
+Backend responsibilities:
+- Resolve camera hostnames (mDNS like `cam-a.local`).
+- Cache resolved IP with TTL and re-resolve on failure.
+- Call ESP32 endpoints (`/status`, `/stream`, `/capture`, etc.) on LAN.
+- Normalize and relay responses to SPA.
 
 ---
 
@@ -137,76 +96,43 @@ cd frontend
 npx @angular/cli@latest new relay-frontend --routing --style=scss
 ```
 
-When prompted:
-- Enable SSR: **No**
-- Zone.js: **Yes**
+Use API URL in Angular:
 
-### 5.1 Configure environment URLs
-In `frontend/relay-frontend/src/environments/environment.ts` (local):
+`src/environments/environment.ts`
 ```ts
 export const environment = {
   production: false,
-  apiBaseUrl: 'http://localhost:8080/api'
+  apiBaseUrl: '/api'
 };
 ```
 
-In `environment.prod.ts` (production):
-```ts
-export const environment = {
-  production: true,
-  apiBaseUrl: 'https://runtracer.com/api'
-};
-```
-
-### 5.2 Run frontend
-```bash
-cd frontend/relay-frontend
-npm install
-npm start
-```
+Using relative `/api` keeps one public origin (`https://runtracer.com`) for both SPA and backend endpoints.
 
 ---
 
-## 6) Local + production workflow
+## 6) Single-URL deployment model (recommended)
 
-### Local development
-- Backend: `http://localhost:8080`
-- Frontend: `http://localhost:4200`
-- CORS allow origin: `http://localhost:4200`
+To match your requirement (one Cloudflare URL for SPA + API), use this topology:
 
-### Production
-- Backend/API domain: `https://runtracer.com`
-- Frontend should call: `https://runtracer.com/api`
+- Cloudflare Tunnel hostname: `runtracer.com`
+- Tunnel origin service: `http://127.0.0.1:8080`
+- Spring Boot serves:
+  - Static SPA files at `/`
+  - API at `/api/**`
 
----
+That means Cloudflare only points to one origin (Spring Boot), and Spring Boot is your gateway.
 
-## 7) ESP32-CAM integration strategy
-
-Recommended path:
-1. Keep ESP32-CAM streaming MJPEG on LAN (private IP).
-2. Spring Boot backend proxies/controls access (auth, throttling, logging).
-3. Angular app only talks to backend (`runtracer.com`), never directly to ESP32 in production.
-
-This replaces the stock ESP32 UI while keeping firmware changes minimal.
+### Why this fits your flow
+- User always hits `https://runtracer.com`.
+- Cloudflare Access authenticates once for that app.
+- SPA and API share origin/session/cookies.
+- Backend owns all LAN camera access and mDNS resolution.
 
 ---
 
+## 7) Cloudflare Tunnel config for single URL
 
-## 8) Cloudflare Tunnel routing (important clarification)
-
-Your understanding is close, but the key detail is:
-
-- Tunnel ingress matches **hostname**.
-- `service:` must point to an **origin root** like `http://127.0.0.1:8080` (or `:80`).
-- The **request path is preserved** and forwarded to origin.
-
-So yes, you can call endpoints such as:
-- `https://runtracer.com/api/health`
-- `https://runtracer.com/api/camera/session/start`
-
-as long as the hostname route points to your Spring Boot origin and your app exposes those paths.
-
-### 8.1 Example local managed config (`~/.cloudflared/config.yml`)
+`~/.cloudflared/config.yml` (locally managed tunnel):
 
 ```yaml
 tunnel: <TUNNEL_UUID>
@@ -215,21 +141,34 @@ credentials-file: /home/<user>/.cloudflared/<TUNNEL_UUID>.json
 ingress:
   - hostname: runtracer.com
     service: http://127.0.0.1:8080
-  - hostname: cam.runtracer.com
-    service: http://192.168.0.175:80
   - service: http_status:404
 ```
 
-Notes:
-- Do **not** put `/api` or `/status` inside `service:` URLs.
-- Cloudflared does not use per-path `service` URLs; paths are part of client request.
-- If you run **token mode** (`cloudflared tunnel run --token ...`), ingress is managed in Cloudflare dashboard, not local `config.yml`.
+Important:
+- `service` remains root host:port (no `/api` path in config).
+- Path routing happens in HTTP request (`/`, `/api/...`) and Spring handles it.
 
-### 8.2 Validate tunnel + endpoints
+If tunnel runs in token mode (`--token`), configure ingress in Cloudflare dashboard.
+
+---
+
+## 8) Runtime flow (end-to-end)
+
+1. Browser -> `https://runtracer.com`
+2. Cloudflare Access auth
+3. Cloudflare Tunnel -> Spring Boot (127.0.0.1:8080)
+4. Spring serves SPA
+5. SPA calls `/api/cameras/...`
+6. Spring resolves mDNS and calls ESP32 on LAN
+7. Spring returns payload to SPA
+
+This is exactly: endpoints live on backend; Cloudflare exposes one URL.
+
+---
+
+## 9) Validation commands
 
 ```bash
 curl -sS -o /dev/null -w "%{http_code}\n" https://runtracer.com/
 curl -sS -o /dev/null -w "%{http_code}\n" https://runtracer.com/api/health
-curl -sS -o /dev/null -w "%{http_code}\n" https://cam.runtracer.com/status
 ```
-
