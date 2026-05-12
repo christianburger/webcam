@@ -1,6 +1,6 @@
 import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
-import { Observable, catchError, of } from 'rxjs';
+import { Observable, catchError, map, of, forkJoin } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { CameraStatus, CameraSummary, FramePayload, SessionState } from '../models/camera-models';
 
@@ -10,9 +10,10 @@ export class CameraApiService {
   constructor(private http: HttpClient) {}
 
   cameras(): Observable<CameraSummary[]> {
-    return this.http.get<CameraSummary[]>(`${this.api}/cameras`).pipe(
-      catchError(() => this.http.get<CameraSummary[]>('/cameras.json')),
-      catchError(() => of([]))
+    const backend$ = this.http.get<CameraSummary[]>(`${this.api}/cameras`).pipe(catchError(() => of([])));
+    const local$ = this.http.get<CameraSummary[]>('/cameras.json').pipe(catchError(() => of([])));
+    return forkJoin([backend$, local$]).pipe(
+      map(([backend, local]) => backend.length > 0 ? backend : local)
     );
   }
 
