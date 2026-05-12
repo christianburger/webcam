@@ -1,40 +1,38 @@
 # Frontend (Angular SPA)
 
-This folder will contain the Angular single-page application for camera control and viewing.
+Angular SPA is the user UI for selecting cameras and issuing control actions.
 
-## Prerequisites
-- Node.js 20 LTS
-- npm 10+
-- Angular CLI 19+
+## Single-origin integration
+Use backend-relative API base URL so frontend and backend stay under one public domain:
 
-## Bootstrap Angular app
-From repository root:
+```ts
+export const environment = {
+  production: false,
+  apiBaseUrl: '/api'
+};
+```
 
+With this, browser calls:
+- `https://runtracer.com/` for SPA
+- `https://runtracer.com/api/...` for backend API
+
+## Requirements
+- Node.js + npm
+- Angular CLI
+
+## Create app
 ```bash
 cd frontend
 npx @angular/cli@latest new relay-frontend --routing --style=scss
 ```
 
-When prompted:
-- Enable SSR: No (for now)
-- Zone.js: Yes (default)
+## Suggested pages
+- camera selector
+- camera controls
+- live stream/frame view
+- session/status panel
 
-## Suggested modules/pages
-- `camera-view` (live feed panel)
-- `camera-control` (start/stop, quality, flash)
-- `settings` (backend URL, credentials)
-
-## Environment config
-Create `src/environments/environment.ts` with backend URL:
-
-```ts
-export const environment = {
-  production: false,
-  apiBaseUrl: 'http://localhost:8080/api'
-};
-```
-
-## Run frontend
+## Run
 ```bash
 cd frontend/relay-frontend
 npm install

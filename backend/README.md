@@ -1,45 +1,40 @@
 # Backend (Spring Boot)
 
-This folder will contain the Java Spring Boot backend for an ESP32-CAM relay service.
+Spring Boot is the gateway for both SPA delivery and camera API relay.
 
-## Prerequisites
-- Java 21 (LTS recommended)
+## Public model
+- Single public URL: `https://runtracer.com`
+- Tunnel points to backend: `http://127.0.0.1:8080`
+- Backend serves:
+  - `/` -> Angular static files
+  - `/api/**` -> camera relay endpoints
+
+## Runtime
+- Java 21
 - Maven 3.9+
-- Optional: Docker + Docker Compose
 
-## Bootstrap a Spring Boot app
-From the repository root:
-
+## Gentoo install quick commands
 ```bash
-cd backend
-mvn -N io.takari:maven:wrapper
-./mvnw -q archetype:generate \
-  -DgroupId=com.localrelay \
-  -DartifactId=relay-backend \
-  -DarchetypeArtifactId=maven-archetype-quickstart \
-  -DinteractiveMode=false
+sudo emerge --sync
+sudo emerge -av dev-java/openjdk:21 dev-java/maven
+java -version
+mvn -v
 ```
 
-Or generate a proper Spring Boot app from Spring Initializr with dependencies:
-- Spring Web
-- Spring Security (optional)
-- Spring WebSocket
-- Spring Boot Actuator
-
-Then copy it into `backend/relay-backend`.
-
-## Suggested structure
-- `relay-backend/src/main/java/.../controller` (REST endpoints)
-- `relay-backend/src/main/java/.../service` (ESP32 stream/session service)
-- `relay-backend/src/main/java/.../config` (CORS, security, WebSocket)
-
-## Suggested first endpoints
-- `POST /api/camera/session/start`
-- `POST /api/camera/session/stop`
-- `GET /api/camera/frame/latest`
+## Suggested endpoints
+- `GET /api/cameras`
+- `GET /api/cameras/{id}/status`
+- `POST /api/cameras/{id}/session/start`
+- `POST /api/cameras/{id}/session/stop`
+- `GET /api/cameras/{id}/frame/latest`
 - `GET /api/health`
 
-## Run backend
+## Relay responsibilities
+- Resolve mDNS names to LAN IPs.
+- Call ESP32 endpoints (`/status`, `/capture`, `/stream`).
+- Relay normalized response payloads to SPA.
+
+## Run
 ```bash
 cd backend/relay-backend
 ./mvnw spring-boot:run
