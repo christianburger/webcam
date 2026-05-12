@@ -5,6 +5,6 @@ import { CameraComponent } from './camera/camera.component';
 export const routes: Routes = [
   { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
   { path: 'dashboard', component: DashboardComponent },
-  { path: 'camera/:id', component: CameraComponent },
+  { path: 'camera', component: CameraComponent },
   { path: '**', redirectTo: 'dashboard' }
 ];
