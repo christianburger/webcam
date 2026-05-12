@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Runtracer Relay UI</title><link rel="stylesheet" href="/styles.css"></head>
+<body>
+  <main>
+    <h1>Runtracer Camera Relay</h1>
+    <div class="row"><label>Camera</label><select id="cameraSelect"></select><button id="loadCameras">Refresh</button></div>
+    <div class="row">
+      <button id="statusBtn">Status</button><button id="startBtn">Start Session</button><button id="stopBtn">Stop Session</button><button id="frameBtn">Latest Frame</button>
+    </div>
+    <pre id="output"></pre>
+    <img id="frame" alt="latest frame"/>
+  </main>
+  <script src="/app.js"></script>
+</body></html>
