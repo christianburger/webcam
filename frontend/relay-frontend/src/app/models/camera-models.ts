@@ -3,6 +3,7 @@ export interface CameraSummary {
   name: string;
   host: string;
   port: number;
+  uri: string;
 }
 
 export interface CameraStatus {

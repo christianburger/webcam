@@ -5,12 +5,27 @@ import { environment } from '../../environments/environment';
 import { CameraStatus, CameraSummary, FramePayload, SessionState } from '../models/camera-models';
 
 const DEFAULT_CAMERAS: CameraSummary[] = [
-  { id: 'cam-1', name: 'ESP32-CAM Front Door', host: 'web-cam.local', port: 80 }
+  { id: 'cam-1', name: 'ESP32-CAM Front Door', host: 'web-cam.local', port: 80, uri: 'http://web-cam.local/' }
 ];
 
+function fromObjectMap(value: unknown): CameraSummary[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return [];
+  return Object.entries(value as Record<string, string>)
+    .filter(([, uri]) => typeof uri === 'string' && uri.length > 0)
+    .map(([name, uri], i) => {
+      let host = 'web-cam.local'; let port = 80;
+      try { const u = new URL(uri); host = u.hostname; port = Number(u.port || '80'); } catch {}
+      return { id: `cam-${i + 1}`, name, host, port, uri };
+    });
+}
+
 function asCameraList(value: unknown): CameraSummary[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((c: any) => c && typeof c.id === 'string' && typeof c.host === 'string');
+  if (Array.isArray(value)) {
+    return value
+      .filter((c: any) => c && typeof c.id === 'string' && typeof c.host === 'string')
+      .map((c: any) => ({ ...c, uri: c.uri || `http://${c.host}:${c.port || 80}/` }));
+  }
+  return fromObjectMap(value);
 }
 
 @Injectable({ providedIn: 'root' })
@@ -26,8 +41,8 @@ export class CameraApiService {
     return forkJoin([backend$, localAbs$, localRel$]).pipe(
       map(([backend, abs, rel]) => {
         const local = abs.length ? abs : rel;
-        if (backend.length > 0) return backend;
         if (local.length > 0) return local;
+        if (backend.length > 0) return backend;
         return DEFAULT_CAMERAS;
       }),
       catchError(() => of(DEFAULT_CAMERAS))

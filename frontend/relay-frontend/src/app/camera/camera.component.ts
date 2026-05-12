@@ -56,7 +56,7 @@ export class CameraComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.cameraId = this.route.snapshot.paramMap.get('id') || '';
     this.api.cameras().subscribe(c => {
-      this.camera = c.find(x => x.id === this.cameraId) || { id: this.cameraId, name: `Camera ${this.cameraId}`, host: 'web-cam.local', port: 80 };
+      this.camera = c.find(x => x.id === this.cameraId) || { id: this.cameraId, name: `Camera ${this.cameraId}`, host: 'web-cam.local', port: 80, uri: 'http://web-cam.local/' };
       this.refreshFrame();
       this.frameTimer = setInterval(() => this.refreshFrame(), 2000);
     });
