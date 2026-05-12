@@ -8,22 +8,29 @@ const DEFAULT_CAMERAS: CameraSummary[] = [
   { id: 'cam-1', name: 'ESP32-CAM Front Door', host: 'web-cam.local', port: 80 }
 ];
 
+function asCameraList(value: unknown): CameraSummary[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((c: any) => c && typeof c.id === 'string' && typeof c.host === 'string');
+}
+
 @Injectable({ providedIn: 'root' })
 export class CameraApiService {
   private readonly api = environment.apiBaseUrl;
   constructor(private http: HttpClient) {}
 
   cameras(): Observable<CameraSummary[]> {
-    const backend$ = this.http.get<CameraSummary[]>(`${this.api}/cameras`).pipe(catchError(() => of([])));
-    const localAbs$ = this.http.get<CameraSummary[]>('/cameras.json').pipe(catchError(() => of([])));
-    const localRel$ = this.http.get<CameraSummary[]>('cameras.json').pipe(catchError(() => of([])));
+    const backend$ = this.http.get<unknown>(`${this.api}/cameras`).pipe(map(asCameraList), catchError(() => of([])));
+    const localAbs$ = this.http.get<unknown>('/cameras.json').pipe(map(asCameraList), catchError(() => of([])));
+    const localRel$ = this.http.get<unknown>('cameras.json').pipe(map(asCameraList), catchError(() => of([])));
+
     return forkJoin([backend$, localAbs$, localRel$]).pipe(
       map(([backend, abs, rel]) => {
         const local = abs.length ? abs : rel;
-        if (backend.length) return backend;
-        if (local.length) return local;
+        if (backend.length > 0) return backend;
+        if (local.length > 0) return local;
         return DEFAULT_CAMERAS;
-      })
+      }),
+      catchError(() => of(DEFAULT_CAMERAS))
     );
   }
 
