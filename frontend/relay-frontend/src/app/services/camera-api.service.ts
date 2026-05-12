@@ -4,6 +4,10 @@ import { Observable, catchError, map, of, forkJoin } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { CameraStatus, CameraSummary, FramePayload, SessionState } from '../models/camera-models';
 
+const DEFAULT_CAMERAS: CameraSummary[] = [
+  { id: 'cam-1', name: 'ESP32-CAM Front Door', host: 'web-cam.local', port: 80 }
+];
+
 @Injectable({ providedIn: 'root' })
 export class CameraApiService {
   private readonly api = environment.apiBaseUrl;
@@ -11,9 +15,15 @@ export class CameraApiService {
 
   cameras(): Observable<CameraSummary[]> {
     const backend$ = this.http.get<CameraSummary[]>(`${this.api}/cameras`).pipe(catchError(() => of([])));
-    const local$ = this.http.get<CameraSummary[]>('cameras.json').pipe(catchError(() => of([])));
-    return forkJoin([backend$, local$]).pipe(
-      map(([backend, local]) => backend.length > 0 ? backend : local)
+    const localAbs$ = this.http.get<CameraSummary[]>('/cameras.json').pipe(catchError(() => of([])));
+    const localRel$ = this.http.get<CameraSummary[]>('cameras.json').pipe(catchError(() => of([])));
+    return forkJoin([backend$, localAbs$, localRel$]).pipe(
+      map(([backend, abs, rel]) => {
+        const local = abs.length ? abs : rel;
+        if (backend.length) return backend;
+        if (local.length) return local;
+        return DEFAULT_CAMERAS;
+      })
     );
   }
 
