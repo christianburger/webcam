@@ -1,32 +1,25 @@
 import { Component, OnInit } from '@angular/core';
-import { NgFor, NgIf } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { NgIf } from '@angular/common';
 import { CameraApiService } from '../services/camera-api.service';
 import { CameraSummary } from '../models/camera-models';
+import { DashboardHeroComponent } from './components/dashboard-hero.component';
+import { CameraListComponent } from './components/camera-list.component';
 
 @Component({
   standalone: true,
-  imports: [NgFor, NgIf, RouterLink],
+  imports: [NgIf, DashboardHeroComponent, CameraListComponent],
   template: `
     <main class="dashboard">
-      <h2>Camera Dashboard</h2>
-      <p class="subtitle">Select a live camera feed from your relay registry.</p>
-      <section class="grid" *ngIf="cameras.length; else empty">
-        <article *ngFor="let c of cameras" class="card">
-          <div class="badge">#{{c.id}}</div>
-          <h3>{{c.name}}</h3>
-          <p>mDNS: <code>{{c.host}}</code></p>
-          <p>Endpoint: {{c.host}}:{{c.port}}</p>
-          <p class="offline">Currently offline (expected)</p>
-          <a [routerLink]="['/camera', c.id]">Open live controls →</a>
-        </article>
+      <app-dashboard-hero [total]="cameras.length" [online]="0"></app-dashboard-hero>
+
+      <section class="section">
+        <h3>Registered Cameras</h3>
+        <app-camera-list *ngIf="cameras.length; else empty" [cameras]="cameras"></app-camera-list>
+        <ng-template #empty><p class="empty">No cameras returned by API or local registry.</p></ng-template>
       </section>
-      <ng-template #empty>
-        <p class="empty">No cameras returned by API or local registry.</p>
-      </ng-template>
     </main>
   `,
-  styles: ['.dashboard{padding:1.25rem}.subtitle{color:#94a3b8}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:14px;margin-top:1rem}.card{background:linear-gradient(145deg,#111827,#1f2937);border:1px solid #334155;padding:1rem;border-radius:12px;box-shadow:0 12px 24px rgba(2,6,23,.35)}h3{margin:.2rem 0 .6rem}.badge{display:inline-block;background:#0ea5e9;color:#082f49;border-radius:999px;padding:.15rem .55rem;font-size:.75rem;font-weight:700}a{color:#7dd3fc;text-decoration:none;font-weight:600}a:hover{text-decoration:underline}code{color:#bfdbfe}.offline{color:#fbbf24;font-weight:600}.empty{margin-top:1rem;color:#fca5a5}']
+  styles: ['.dashboard{padding:1.25rem;display:grid;gap:1rem}.section h3{margin:.2rem 0 .75rem}.empty{color:#fca5a5}']
 })
 export class DashboardComponent implements OnInit {
   cameras: CameraSummary[] = [];

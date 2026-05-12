@@ -8,10 +8,10 @@ import { CameraStatus, CameraSummary, SessionState } from '../models/camera-mode
   standalone: true,
   imports: [NgIf, RouterLink],
   template: `
-    <main class="camera-page" *ngIf="camera">
+    <main class="camera-page" >
       <a routerLink="/dashboard">← back to dashboard</a>
-      <h2>{{camera.name}}</h2>
-      <p class="meta">mDNS: {{camera.host}} · Port: {{camera.port}}</p>
+      <h2>{{camera?.name || ('Camera ' + cameraId)}}</h2>
+      <p class="meta">mDNS: {{camera?.host || 'web-cam.local'}} · Port: {{camera?.port || 80}}</p>
 
       <section class="viewer">
         <img [src]="frameSrc" alt="Latest frame" />
@@ -54,7 +54,7 @@ export class CameraComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.cameraId = this.route.snapshot.paramMap.get('id') || '';
     this.api.cameras().subscribe(c => {
-      this.camera = c.find(x => x.id === this.cameraId);
+      this.camera = c.find(x => x.id === this.cameraId) || { id: this.cameraId, name: `Camera ${this.cameraId}`, host: "web-cam.local", port: 80 };
       this.refreshFrame();
       this.frameTimer = setInterval(() => this.refreshFrame(), 2000);
     });
@@ -67,6 +67,7 @@ export class CameraComponent implements OnInit, OnDestroy {
   refreshFrame(): void {
     this.api.frame(this.cameraId).subscribe(v => {
       if (v.base64) this.frameSrc = `data:${v.contentType};base64,${v.base64}`;
+      else this.frameSrc = "";
     });
   }
   start(): void { this.api.start(this.cameraId).subscribe(v => this.session = v); }
@@ -76,18 +77,18 @@ export class CameraComponent implements OnInit, OnDestroy {
     if (!this.camera) return;
     const value = Number((event.target as HTMLInputElement).value);
     if (axis === 'pan') this.pan = value; else this.tilt = value;
-    fetch(`http://${this.camera.host}/control/${axis}?angle=${value}`, { mode: 'no-cors' });
+    fetch(`http://${this.camera?.host || "web-cam.local"}/control/${axis}?angle=${value}`, { mode: 'no-cors' });
   }
 
   toggleLed(): void {
     if (!this.camera) return;
     this.ledOn = !this.ledOn;
-    fetch(`http://${this.camera.host}/control/led?state=${this.ledOn ? 1 : 0}`, { mode: 'no-cors' });
+    fetch(`http://${this.camera?.host || "web-cam.local"}/control/led?state=${this.ledOn ? 1 : 0}`, { mode: 'no-cors' });
   }
 
   toggleSwitch(): void {
     if (!this.camera) return;
     this.switchOn = !this.switchOn;
-    fetch(`http://${this.camera.host}/control/switch?state=${this.switchOn ? 1 : 0}`, { mode: 'no-cors' });
+    fetch(`http://${this.camera?.host || "web-cam.local"}/control/switch?state=${this.switchOn ? 1 : 0}`, { mode: 'no-cors' });
   }
 }

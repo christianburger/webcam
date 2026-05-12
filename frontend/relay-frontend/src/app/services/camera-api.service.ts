@@ -11,7 +11,7 @@ export class CameraApiService {
 
   cameras(): Observable<CameraSummary[]> {
     const backend$ = this.http.get<CameraSummary[]>(`${this.api}/cameras`).pipe(catchError(() => of([])));
-    const local$ = this.http.get<CameraSummary[]>('/cameras.json').pipe(catchError(() => of([])));
+    const local$ = this.http.get<CameraSummary[]>('cameras.json').pipe(catchError(() => of([])));
     return forkJoin([backend$, local$]).pipe(
       map(([backend, local]) => backend.length > 0 ? backend : local)
     );
