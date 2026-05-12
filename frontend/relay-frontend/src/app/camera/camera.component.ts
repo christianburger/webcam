@@ -2,7 +2,7 @@ import { Component, OnInit } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { JsonPipe, NgIf } from '@angular/common';
 import { CameraApiService } from '../services/camera-api.service';
-import { CameraStatus, CameraSummary, SessionState } from '../models/camera.models';
+import { CameraStatus, CameraSummary, SessionState } from '../models/camera-models';
 
 @Component({
   standalone: true,
