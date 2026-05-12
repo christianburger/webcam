@@ -7,7 +7,6 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
@@ -49,6 +48,27 @@ public class CameraRelayService {
                 "base64", Base64.getEncoder().encodeToString(bytes == null ? new byte[0] : bytes));
         } catch (Exception ex) {
             return Map.of("cameraId", id, "error", ex.getMessage(), "capturedAt", Instant.now().toString());
+        }
+    }
+
+    public Map<String, Object> periphState(String id) {
+        var cam = getCamera(id);
+        try {
+            var body = restClient.get().uri(uri(cam, "/periph/state")).retrieve().body(String.class);
+            return Map.of("cameraId", id, "observedAt", Instant.now().toString(), "body", body == null ? "{}" : body);
+        } catch (Exception ex) {
+            return Map.of("cameraId", id, "observedAt", Instant.now().toString(), "error", ex.getMessage());
+        }
+    }
+
+    public Map<String, Object> control(String id, String name, Integer angle, Integer state) {
+        var cam = getCamera(id);
+        try {
+            String query = angle != null ? "angle=" + angle : "state=" + (state == null ? 0 : state);
+            var body = restClient.get().uri(uri(cam, "/control/" + name + "?" + query)).retrieve().body(String.class);
+            return Map.of("cameraId", id, "control", name, "ok", true, "body", body == null ? "ok" : body, "observedAt", Instant.now().toString());
+        } catch (Exception ex) {
+            return Map.of("cameraId", id, "control", name, "ok", false, "error", ex.getMessage(), "observedAt", Instant.now().toString());
         }
     }
 
