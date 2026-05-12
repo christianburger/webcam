@@ -330,7 +330,7 @@ static const char ROOT_HTML[] =
 "  if(wasStreaming){id('stream-img').src='';paused=true;set('stream-btn','\xe2\x96\xb6 Resume');}\n"
 "  toast('Capturing\xe2\x80\xa6','info');\n"
 "  setTimeout(function(){\n"
-"    fetch('/capture')\n"
+"    fetch('/capture',{method:'POST'})\n"
 "      .then(function(r){if(!r.ok)throw new Error('HTTP '+r.status);return r.blob();})\n"
 "      .then(function(blob){\n"
 "        var url=URL.createObjectURL(blob);\n"
@@ -702,7 +702,7 @@ esp_err_t periph_state_handler(httpd_req_t *req) {
 void controller_register_handlers(httpd_handle_t server) {
     const httpd_uri_t routes[] = {
         { .uri = "/",              .method = HTTP_GET, .handler = root_handler          },
-        { .uri = "/capture",       .method = HTTP_GET, .handler = capture_handler       },
+        { .uri = "/capture",       .method = HTTP_POST,.handler = capture_handler       },
         { .uri = "/stream",        .method = HTTP_GET, .handler = stream_handler        },
         { .uri = "/status",        .method = HTTP_GET, .handler = status_handler        },
         { .uri = "/hardware",      .method = HTTP_GET, .handler = hardware_info_handler },
