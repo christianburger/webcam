@@ -1,0 +1,8 @@
+[
+  {
+    "id": "cam-1",
+    "name": "ESP32-CAM Front Door",
+    "host": "web-cam.local",
+    "port": 80
+  }
+]
