@@ -77,8 +77,8 @@ export class CameraComponent implements OnInit, OnDestroy {
   setServo(axis: 'pan' | 'tilt', event: Event): void {
     const value = Number((event.target as HTMLInputElement).value);
     if (axis === 'pan') this.pan = value; else this.tilt = value;
-    fetch(`http://${this.camera?.host || 'web-cam.local'}/control/${axis}?angle=${value}`, { mode: 'no-cors' });
+    this.api.control(this.cameraId, axis, `angle=${value}`).subscribe();
   }
-  toggleLed(): void { this.ledOn = !this.ledOn; fetch(`http://${this.camera?.host || 'web-cam.local'}/control/led?state=${this.ledOn ? 1 : 0}`, { mode: 'no-cors' }); }
-  toggleSwitch(): void { this.switchOn = !this.switchOn; fetch(`http://${this.camera?.host || 'web-cam.local'}/control/switch?state=${this.switchOn ? 1 : 0}`, { mode: 'no-cors' }); }
+  toggleLed(): void { this.ledOn = !this.ledOn; this.api.control(this.cameraId, 'led', `state=${this.ledOn ? 1 : 0}`).subscribe(); }
+  toggleSwitch(): void { this.switchOn = !this.switchOn; this.api.control(this.cameraId, 'switch', `state=${this.switchOn ? 1 : 0}`).subscribe(); }
 }

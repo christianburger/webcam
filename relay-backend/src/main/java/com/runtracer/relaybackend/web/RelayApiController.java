@@ -7,6 +7,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -38,4 +39,14 @@ public class RelayApiController {
 
     @GetMapping("/cameras/{id}/frame/latest")
     public Object frame(@PathVariable String id) { return relay.frameLatest(id); }
+
+    @GetMapping("/cameras/{id}/periph/state")
+    public Object periph(@PathVariable String id) { return relay.periphState(id); }
+
+    @GetMapping("/cameras/{id}/control/{name}")
+    public Object control(@PathVariable String id, @PathVariable String name,
+                          @RequestParam(required = false) Integer angle,
+                          @RequestParam(required = false) Integer state) {
+        return relay.control(id, name, angle, state);
+    }
 }

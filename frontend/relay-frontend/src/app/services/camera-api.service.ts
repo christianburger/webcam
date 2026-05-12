@@ -53,4 +53,7 @@ export class CameraApiService {
   start(id: string): Observable<SessionState> { return this.http.post<SessionState>(`${this.api}/cameras/${id}/session/start`, {}); }
   stop(id: string): Observable<SessionState> { return this.http.post<SessionState>(`${this.api}/cameras/${id}/session/stop`, {}); }
   frame(id: string): Observable<FramePayload> { return this.http.get<FramePayload>(`${this.api}/cameras/${id}/frame/latest`); }
+  periph(id: string): Observable<any> { return this.http.get<any>(`${this.api}/cameras/${id}/periph/state`); }
+  control(id: string, name: string, params: string): Observable<any> { return this.http.get<any>(`${this.api}/cameras/${id}/control/${name}?${params}`); }
 }
+
