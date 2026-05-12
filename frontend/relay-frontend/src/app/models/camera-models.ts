@@ -22,6 +22,7 @@ export interface SessionState {
 export interface FramePayload {
   cameraId: string;
   contentType: string;
-  data: number[];
-  observedAt: string;
+  capturedAt: string;
+  base64?: string;
+  error?: string;
 }
