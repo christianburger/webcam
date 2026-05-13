@@ -35,6 +35,10 @@
           },
           "configurations": {
             "production": {
+              "outputPath": {
+                "base": "../../relay-backend/src/main/resources/static",
+                "browser": ""
+              },
               "budgets": [
                 {
                   "type": "initial",

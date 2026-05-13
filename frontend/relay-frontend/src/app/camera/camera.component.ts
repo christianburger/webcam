@@ -54,31 +54,54 @@ export class CameraComponent implements OnInit, OnDestroy {
   constructor(private route: ActivatedRoute, private api: CameraApiService) {}
 
   ngOnInit(): void {
-    this.cameraId = this.route.snapshot.fragment || 'cam-1';
-    this.api.cameras().subscribe(c => {
-      this.camera = c.find(x => x.id === this.cameraId) || { id: this.cameraId, name: `Camera ${this.cameraId}`, host: 'web-cam.local', port: 80, uri: 'http://web-cam.local/' };
+    // Use the :id route parameter — set in app.routes.ts as 'camera/:id'
+    this.cameraId = this.route.snapshot.paramMap.get('id') || 'cam-1';
+
+    this.api.cameras().subscribe(cameras => {
+      this.camera = cameras.find(x => x.id === this.cameraId)
+          ?? { id: this.cameraId, name: `Camera ${this.cameraId}`, host: 'web-cam.local', port: 80, uri: 'http://web-cam.local/' };
       this.refreshFrame();
       this.frameTimer = setInterval(() => this.refreshFrame(), 2000);
     });
     this.refreshStatus();
   }
 
-  ngOnDestroy(): void { if (this.frameTimer) clearInterval(this.frameTimer); }
-  refreshStatus(): void { this.api.status(this.cameraId).subscribe(v => this.status = v); }
+  ngOnDestroy(): void {
+    if (this.frameTimer) clearInterval(this.frameTimer);
+  }
+
+  refreshStatus(): void {
+    this.api.status(this.cameraId).subscribe(v => this.status = v);
+  }
+
   refreshFrame(): void {
     this.api.frame(this.cameraId).subscribe(v => {
-      if (v.base64) { this.frameSrc = `data:${v.contentType};base64,${v.base64}`; this.frameMessage = `Frame updated at ${v.capturedAt}`; }
-      else { this.frameSrc = ''; this.frameMessage = v.error || 'Camera reachable but no frame payload.'; }
+      if (v.base64) {
+        this.frameSrc = `data:${v.contentType};base64,${v.base64}`;
+        this.frameMessage = `Frame updated at ${v.capturedAt}`;
+      } else {
+        this.frameSrc = '';
+        this.frameMessage = v.error || 'Camera reachable but no frame payload.';
+      }
     });
   }
+
   start(): void { this.api.start(this.cameraId).subscribe(v => this.session = v); }
-  stop(): void { this.api.stop(this.cameraId).subscribe(v => this.session = v); }
+  stop(): void  { this.api.stop(this.cameraId).subscribe(v => this.session = v); }
 
   setServo(axis: 'pan' | 'tilt', event: Event): void {
     const value = Number((event.target as HTMLInputElement).value);
     if (axis === 'pan') this.pan = value; else this.tilt = value;
     this.api.control(this.cameraId, axis, `angle=${value}`).subscribe();
   }
-  toggleLed(): void { this.ledOn = !this.ledOn; this.api.control(this.cameraId, 'led', `state=${this.ledOn ? 1 : 0}`).subscribe(); }
-  toggleSwitch(): void { this.switchOn = !this.switchOn; this.api.control(this.cameraId, 'switch', `state=${this.switchOn ? 1 : 0}`).subscribe(); }
+
+  toggleLed(): void {
+    this.ledOn = !this.ledOn;
+    this.api.control(this.cameraId, 'led', `state=${this.ledOn ? 1 : 0}`).subscribe();
+  }
+
+  toggleSwitch(): void {
+    this.switchOn = !this.switchOn;
+    this.api.control(this.cameraId, 'switch', `state=${this.switchOn ? 1 : 0}`).subscribe();
+  }
 }

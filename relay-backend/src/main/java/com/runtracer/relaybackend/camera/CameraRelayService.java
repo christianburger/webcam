@@ -23,7 +23,12 @@ public class CameraRelayService {
 
     public List<CameraModels.CameraSummary> cameras() {
         return props.getCamera().getRegistry().stream()
-            .map(c -> new CameraModels.CameraSummary(c.getId(), c.getName(), c.getHost(), c.getPort()))
+            .map(c -> new CameraModels.CameraSummary(
+                c.getId(),
+                c.getName(),
+                c.getHost(),
+                c.getPort(),
+                "http://" + c.getHost() + ":" + c.getPort() + "/"))
             .toList();
     }
 
@@ -37,17 +42,30 @@ public class CameraRelayService {
         }
     }
 
-    public CameraModels.SessionState startSession(String id) { sessions.put(id, true); return new CameraModels.SessionState(id, true, Instant.now()); }
-    public CameraModels.SessionState stopSession(String id) { sessions.put(id, false); return new CameraModels.SessionState(id, false, Instant.now()); }
+    public CameraModels.SessionState startSession(String id) {
+        sessions.put(id, true);
+        return new CameraModels.SessionState(id, true, Instant.now());
+    }
+
+    public CameraModels.SessionState stopSession(String id) {
+        sessions.put(id, false);
+        return new CameraModels.SessionState(id, false, Instant.now());
+    }
 
     public Map<String, Object> frameLatest(String id) {
         var cam = getCamera(id);
         try {
             var bytes = restClient.get().uri(uri(cam, "/capture")).retrieve().body(byte[].class);
-            return Map.of("cameraId", id, "contentType", "image/jpeg", "capturedAt", Instant.now().toString(),
+            return Map.of(
+                "cameraId", id,
+                "contentType", "image/jpeg",
+                "capturedAt", Instant.now().toString(),
                 "base64", Base64.getEncoder().encodeToString(bytes == null ? new byte[0] : bytes));
         } catch (Exception ex) {
-            return Map.of("cameraId", id, "error", ex.getMessage(), "capturedAt", Instant.now().toString());
+            return Map.of(
+                "cameraId", id,
+                "error", ex.getMessage(),
+                "capturedAt", Instant.now().toString());
         }
     }
 
@@ -55,9 +73,15 @@ public class CameraRelayService {
         var cam = getCamera(id);
         try {
             var body = restClient.get().uri(uri(cam, "/periph/state")).retrieve().body(String.class);
-            return Map.of("cameraId", id, "observedAt", Instant.now().toString(), "body", body == null ? "{}" : body);
+            return Map.of(
+                "cameraId", id,
+                "observedAt", Instant.now().toString(),
+                "body", body == null ? "{}" : body);
         } catch (Exception ex) {
-            return Map.of("cameraId", id, "observedAt", Instant.now().toString(), "error", ex.getMessage());
+            return Map.of(
+                "cameraId", id,
+                "observedAt", Instant.now().toString(),
+                "error", ex.getMessage());
         }
     }
 
@@ -65,15 +89,29 @@ public class CameraRelayService {
         var cam = getCamera(id);
         try {
             String query = angle != null ? "angle=" + angle : "state=" + (state == null ? 0 : state);
-            var body = restClient.get().uri(uri(cam, "/control/" + name + "?" + query)).retrieve().body(String.class);
-            return Map.of("cameraId", id, "control", name, "ok", true, "body", body == null ? "ok" : body, "observedAt", Instant.now().toString());
+            var body = restClient.get()
+                .uri(uri(cam, "/control/" + name + "?" + query))
+                .retrieve().body(String.class);
+            return Map.of(
+                "cameraId", id,
+                "control", name,
+                "ok", true,
+                "body", body == null ? "ok" : body,
+                "observedAt", Instant.now().toString());
         } catch (Exception ex) {
-            return Map.of("cameraId", id, "control", name, "ok", false, "error", ex.getMessage(), "observedAt", Instant.now().toString());
+            return Map.of(
+                "cameraId", id,
+                "control", name,
+                "ok", false,
+                "error", ex.getMessage(),
+                "observedAt", Instant.now().toString());
         }
     }
 
     private AppProperties.CameraEntry getCamera(String id) {
-        return props.getCamera().getRegistry().stream().filter(c -> c.getId().equals(id)).findFirst()
+        return props.getCamera().getRegistry().stream()
+            .filter(c -> c.getId().equals(id))
+            .findFirst()
             .orElseThrow(() -> new IllegalArgumentException("Unknown camera id: " + id));
     }
 

@@ -403,6 +403,13 @@ CONFIG_PARTITION_TABLE_MD5=y
 # end of Partition Table
 
 #
+# WiFi Configuration
+#
+CONFIG_WIFI_SSID="dlink-30C0"
+CONFIG_WIFI_PASS="ypics98298"
+# end of WiFi Configuration
+
+#
 # Compiler options
 #
 CONFIG_COMPILER_OPTIMIZATION_DEBUG=y
