@@ -26,8 +26,8 @@ import { CameraStatus, CameraSummary, SessionState } from '../models/camera-mode
       </section>
 
       <section class="controls">
-        <label>Pan <input type="range" min="0" max="180" [value]="pan" (input)="setServo('pan',$event)" /></label>
-        <label>Tilt <input type="range" min="0" max="180" [value]="tilt" (input)="setServo('tilt',$event)" /></label>
+        <label>Pan  <input type="range" min="0" max="180" [value]="pan"  (input)="setServo('pan', $event)"  /></label>
+        <label>Tilt <input type="range" min="0" max="180" [value]="tilt" (input)="setServo('tilt', $event)" /></label>
         <button (click)="toggleSwitch()">Toggle Switch</button>
         <button (click)="toggleLed()">Toggle LED</button>
       </section>
@@ -54,40 +54,72 @@ export class CameraComponent implements OnInit, OnDestroy {
   constructor(private route: ActivatedRoute, private api: CameraApiService) {}
 
   ngOnInit(): void {
-    // Use the :id route parameter — set in app.routes.ts as 'camera/:id'
     this.cameraId = this.route.snapshot.paramMap.get('id') || 'cam-1';
+    console.log('[CameraComponent] ngOnInit — cameraId from route param:', this.cameraId);
 
-    this.api.cameras().subscribe(cameras => {
-      this.camera = cameras.find(x => x.id === this.cameraId)
-          ?? { id: this.cameraId, name: `Camera ${this.cameraId}`, host: 'web-cam.local', port: 80, uri: 'http://web-cam.local/' };
-      this.refreshFrame();
-      this.frameTimer = setInterval(() => this.refreshFrame(), 2000);
+    console.log('[CameraComponent] calling api.cameras()...');
+    this.api.cameras().subscribe({
+      next: cameras => {
+        console.log('[CameraComponent] cameras() resolved:', cameras);
+        this.camera = cameras.find(x => x.id === this.cameraId)
+          ?? { id: this.cameraId, name: `Camera ${this.cameraId}`,
+            host: 'web-cam.local', port: 80, uri: 'http://web-cam.local/' };
+        console.log('[CameraComponent] selected camera:', this.camera);
+        this.refreshFrame();
+        this.frameTimer = setInterval(() => this.refreshFrame(), 2000);
+      },
+      error: err => console.error('[CameraComponent] cameras() ERROR:', err)
     });
+
+    console.log('[CameraComponent] calling refreshStatus()...');
     this.refreshStatus();
   }
 
   ngOnDestroy(): void {
+    console.log('[CameraComponent] ngOnDestroy — clearing frame timer');
     if (this.frameTimer) clearInterval(this.frameTimer);
   }
 
   refreshStatus(): void {
-    this.api.status(this.cameraId).subscribe(v => this.status = v);
+    console.log('[CameraComponent] refreshStatus() for camera:', this.cameraId);
+    this.api.status(this.cameraId).subscribe({
+      next:  v   => { console.log('[CameraComponent] status:', v); this.status = v; },
+      error: err => console.error('[CameraComponent] status ERROR:', err.status, err.message)
+    });
   }
 
   refreshFrame(): void {
-    this.api.frame(this.cameraId).subscribe(v => {
-      if (v.base64) {
-        this.frameSrc = `data:${v.contentType};base64,${v.base64}`;
-        this.frameMessage = `Frame updated at ${v.capturedAt}`;
-      } else {
+    this.api.frame(this.cameraId).subscribe({
+      next: v => {
+        if (v.base64) {
+          this.frameSrc = `data:${v.contentType};base64,${v.base64}`;
+          this.frameMessage = `Frame updated at ${v.capturedAt}`;
+        } else {
+          this.frameSrc = '';
+          this.frameMessage = (v as any).error || 'Camera reachable but no frame payload.';
+        }
+      },
+      error: err => {
+        console.error('[CameraComponent] frame ERROR:', err.status, err.message);
         this.frameSrc = '';
-        this.frameMessage = v.error || 'Camera reachable but no frame payload.';
+        this.frameMessage = `Frame fetch failed: ${err.status} ${err.message}`;
       }
     });
   }
 
-  start(): void { this.api.start(this.cameraId).subscribe(v => this.session = v); }
-  stop(): void  { this.api.stop(this.cameraId).subscribe(v => this.session = v); }
+  start(): void {
+    this.api.start(this.cameraId).subscribe({
+      next:  v   => this.session = v,
+      error: err => console.error('[CameraComponent] start ERROR:', err)
+    });
+  }
+
+  stop(): void {
+    this.api.stop(this.cameraId).subscribe({
+      next:  v   => this.session = v,
+      error: err => console.error('[CameraComponent] stop ERROR:', err)
+    });
+  }
 
   setServo(axis: 'pan' | 'tilt', event: Event): void {
     const value = Number((event.target as HTMLInputElement).value);

@@ -12,12 +12,11 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         return http
-            .csrf(csrf -> csrf.disable())
-            .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/", "/index.html", "/styles.css", "/app.js").permitAll()
-                .requestMatchers("/api/**", "/actuator/health").permitAll()
-                .anyRequest().permitAll())
-            .httpBasic(Customizer.withDefaults())
-            .build();
+                // Let Spring MVC CORS config (in RelayBackendConfig) handle preflight OPTIONS
+                .cors(Customizer.withDefaults())
+                .csrf(csrf -> csrf.disable())
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                .httpBasic(Customizer.withDefaults())
+                .build();
     }
 }
