@@ -344,7 +344,7 @@ esp_err_t periph_state_handler(httpd_req_t *req) {
 void controller_register_handlers(httpd_handle_t server) {
     const httpd_uri_t routes[] = {
         { .uri = "/",              .method = HTTP_GET, .handler = root_handler          },
-        { .uri = "/capture",       .method = HTTP_GET, .handler = capture_handler       },
+        { .uri = "/capture",       .method = HTTP_POST,.handler = capture_handler       },
         { .uri = "/stream",        .method = HTTP_GET, .handler = stream_handler        },
         { .uri = "/status",        .method = HTTP_GET, .handler = status_handler        },
         { .uri = "/hardware",      .method = HTTP_GET, .handler = hardware_info_handler },
