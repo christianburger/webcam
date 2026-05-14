@@ -1,6 +1,10 @@
 package com.runtracer.relaybackend.camera;
 
 import com.runtracer.relaybackend.config.AppProperties;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.URI;
 import java.time.Instant;
 import java.util.Base64;
@@ -60,44 +64,6 @@ public class CameraRelayService {
         }
     }
 
-    public CameraModels.SessionState startSession(String id) {
-        log.info("[RELAY] startSession({})", id);
-        sessions.put(id, true);
-        return new CameraModels.SessionState(id, true, Instant.now());
-    }
-
-    public CameraModels.SessionState stopSession(String id) {
-        log.info("[RELAY] stopSession({})", id);
-        sessions.put(id, false);
-        return new CameraModels.SessionState(id, false, Instant.now());
-    }
-
-    public Map<String, Object> frameLatest(String id) {
-        var cam = getCamera(id);
-        URI target = uri(cam, "/capture");
-        log.info("[RELAY] frameLatest({}) → GET {}", id, target);
-        long t0 = System.currentTimeMillis();
-        try {
-            byte[] bytes = restClient.get().uri(target).retrieve().body(byte[].class);
-            long ms = System.currentTimeMillis() - t0;
-            int size = bytes == null ? 0 : bytes.length;
-            log.info("[RELAY] frameLatest({}) ← {} bytes in {}ms", id, size, ms);
-            return Map.of(
-                    "cameraId", id,
-                    "contentType", "image/jpeg",
-                    "capturedAt", Instant.now().toString(),
-                    "base64", Base64.getEncoder().encodeToString(bytes == null ? new byte[0] : bytes));
-        } catch (Exception ex) {
-            long ms = System.currentTimeMillis() - t0;
-            log.error("[RELAY] frameLatest({}) ← ERROR in {}ms: {} — {}",
-                    id, ms, ex.getClass().getSimpleName(), ex.getMessage());
-            return Map.of(
-                    "cameraId", id,
-                    "error", ex.getMessage(),
-                    "capturedAt", Instant.now().toString());
-        }
-    }
-
     public Map<String, Object> periphState(String id) {
         var cam = getCamera(id);
         URI target = uri(cam, "/periph/state");
@@ -146,6 +112,84 @@ public class CameraRelayService {
                     "observedAt", Instant.now().toString());
         }
     }
+
+    // ── Streaming proxies ─────────────────────────────────────────────────────
+
+    /**
+     * Proxies the MJPEG stream from the ESP32 to the given OutputStream.
+     * Blocks until the client disconnects or the camera goes offline.
+     */
+    public void proxyStream(String id, OutputStream out) throws IOException {
+        var cam = getCamera(id);
+        String urlStr = "http://" + cam.getHost() + ":" + cam.getPort() + "/stream";
+        log.info("[RELAY] proxyStream({}) → {}", id, urlStr);
+        HttpURLConnection conn = (HttpURLConnection) URI.create(urlStr).toURL().openConnection();
+        conn.setConnectTimeout(5_000);
+        conn.setReadTimeout(0);        // no read timeout — stream is indefinite
+        try (InputStream in = conn.getInputStream()) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) != -1) {
+                out.write(buf, 0, n);
+                out.flush();
+            }
+        } finally {
+            conn.disconnect();
+            log.info("[RELAY] proxyStream({}) ended", id);
+        }
+    }
+
+    /**
+     * Proxies a single JPEG capture from the ESP32 to the given OutputStream.
+     */
+    public void proxyCapture(String id, OutputStream out) throws IOException {
+        var cam = getCamera(id);
+        String urlStr = "http://" + cam.getHost() + ":" + cam.getPort() + "/capture";
+        log.info("[RELAY] proxyCapture({}) → {}", id, urlStr);
+        HttpURLConnection conn = (HttpURLConnection) URI.create(urlStr).toURL().openConnection();
+        conn.setConnectTimeout(5_000);
+        conn.setReadTimeout(10_000);
+        try (InputStream in = conn.getInputStream()) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) != -1) {
+                out.write(buf, 0, n);
+            }
+        } finally {
+            conn.disconnect();
+            log.info("[RELAY] proxyCapture({}) done", id);
+        }
+    }
+
+    // ── Retained for API backwards compat (frame/latest) ─────────────────────
+
+    public Map<String, Object> frameLatest(String id) {
+        var cam = getCamera(id);
+        URI target = uri(cam, "/capture");
+        log.info("[RELAY] frameLatest({}) → GET {}", id, target);
+        long t0 = System.currentTimeMillis();
+        try {
+            byte[] bytes = restClient.get().uri(target).retrieve().body(byte[].class);
+            long ms = System.currentTimeMillis() - t0;
+            int size = bytes == null ? 0 : bytes.length;
+            log.info("[RELAY] frameLatest({}) ← {} bytes in {}ms", id, size, ms);
+            return Map.of(
+                    "cameraId", id,
+                    "contentType", "image/jpeg",
+                    "capturedAt", Instant.now().toString(),
+                    "base64", Base64.getEncoder().encodeToString(bytes == null ? new byte[0] : bytes));
+        } catch (Exception ex) {
+            long ms = System.currentTimeMillis() - t0;
+            log.error("[RELAY] frameLatest({}) ← ERROR in {}ms: {} — {}",
+                    id, ms, ex.getClass().getSimpleName(), ex.getMessage());
+            return Map.of(
+                    "cameraId", id,
+                    "error", ex.getMessage(),
+                    "capturedAt", Instant.now().toString());
+        }
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private AppProperties.CameraEntry getCamera(String id) {
         return props.getCamera().getRegistry().stream()

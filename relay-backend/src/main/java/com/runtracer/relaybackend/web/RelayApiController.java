@@ -1,6 +1,8 @@
 package com.runtracer.relaybackend.web;
 
 import com.runtracer.relaybackend.camera.CameraRelayService;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import java.time.Instant;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -28,53 +30,61 @@ public class RelayApiController {
     public Object cameras() {
         log.info("[API] GET /api/cameras");
         var result = relay.cameras();
-        log.info("[API] /cameras → returning {} camera(s): {}",
-                result.size(),
-                result.stream().map(c -> c.id() + "@" + c.host()).toList());
+        log.info("[API] /cameras → {} camera(s)", result.size());
         return result;
     }
 
     @GetMapping("/cameras/{id}/status")
     public Object status(@PathVariable String id) {
         log.info("[API] GET /api/cameras/{}/status", id);
-        var result = relay.status(id);
-        log.info("[API] /cameras/{}/status → reachable={} httpStatus={}",
-                id, result.reachable(), result.statusCode());
-        return result;
+        return relay.status(id);
     }
 
-    @PostMapping("/cameras/{id}/session/start")
-    public Object start(@PathVariable String id) {
-        log.info("[API] POST /api/cameras/{}/session/start", id);
-        var result = relay.startSession(id);
-        log.info("[API] /cameras/{}/session/start → active={}", id, result.active());
-        return result;
+    // ── MJPEG stream proxy ────────────────────────────────────────────────────
+    // The browser <img src="..."> connects here; Spring holds the thread and
+    // pipes bytes from the ESP32 /stream endpoint until the client disconnects.
+    @GetMapping("/cameras/{id}/stream")
+    public void stream(@PathVariable String id, HttpServletResponse response) {
+        log.info("[API] GET /api/cameras/{}/stream", id);
+        response.setContentType("multipart/x-mixed-replace;boundary=ESP32CAMBOUNDARY");
+        response.setHeader("Cache-Control", "no-cache, no-store");
+        response.setHeader("Access-Control-Allow-Origin", "*");
+        try {
+            relay.proxyStream(id, response.getOutputStream());
+        } catch (IOException e) {
+            // Normal when the browser tab is closed or user navigates away
+            log.info("[API] stream({}) client disconnected: {}", id, e.getMessage());
+        }
     }
 
-    @PostMapping("/cameras/{id}/session/stop")
-    public Object stop(@PathVariable String id) {
-        log.info("[API] POST /api/cameras/{}/session/stop", id);
-        var result = relay.stopSession(id);
-        log.info("[API] /cameras/{}/session/stop → active={}", id, result.active());
-        return result;
+    // ── Direct JPEG capture ───────────────────────────────────────────────────
+    // Opens inline in the browser or can be saved as a file.
+    @GetMapping("/cameras/{id}/capture")
+    public void capture(@PathVariable String id, HttpServletResponse response) {
+        log.info("[API] GET /api/cameras/{}/capture", id);
+        response.setContentType("image/jpeg");
+        response.setHeader("Content-Disposition", "inline; filename=capture.jpg");
+        response.setHeader("Cache-Control", "no-store");
+        response.setHeader("Access-Control-Allow-Origin", "*");
+        try {
+            relay.proxyCapture(id, response.getOutputStream());
+        } catch (IOException e) {
+            log.error("[API] capture({}) error: {}", id, e.getMessage());
+            response.setStatus(503);
+        }
     }
 
+    // ── Retained for backwards-compat (base64 JSON) ───────────────────────────
     @GetMapping("/cameras/{id}/frame/latest")
     public Object frame(@PathVariable String id) {
         log.info("[API] GET /api/cameras/{}/frame/latest", id);
-        var result = relay.frameLatest(id);
-        boolean hasFrame = result.containsKey("base64");
-        log.info("[API] /cameras/{}/frame/latest → hasBase64={} error={}",
-                id, hasFrame, result.getOrDefault("error", "none"));
-        return result;
+        return relay.frameLatest(id);
     }
 
     @GetMapping("/cameras/{id}/periph/state")
     public Object periph(@PathVariable String id) {
         log.info("[API] GET /api/cameras/{}/periph/state", id);
-        var result = relay.periphState(id);
-        log.info("[API] /cameras/{}/periph/state → {}", id, result);
-        return result;
+        return relay.periphState(id);
     }
 
     @GetMapping("/cameras/{id}/control/{name}")

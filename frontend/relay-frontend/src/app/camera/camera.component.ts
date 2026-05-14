@@ -1,139 +1,294 @@
-import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Component, OnInit } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { NgIf } from '@angular/common';
 import { CameraApiService } from '../services/camera-api.service';
-import { CameraStatus, CameraSummary, SessionState } from '../models/camera-models';
+import { CameraSummary } from '../models/camera-models';
+import { environment } from '../../environments/environment';
 
 @Component({
   standalone: true,
   imports: [NgIf, RouterLink],
   template: `
     <main class="camera-page">
-      <a routerLink="/dashboard">← back to dashboard</a>
-      <h2>{{camera?.name || ('Camera ' + cameraId)}}</h2>
-      <p class="meta">mDNS: {{camera?.host || 'web-cam.local'}} · Port: {{camera?.port || 80}}</p>
+      <a routerLink="/dashboard" class="back-link">← Dashboard</a>
+      <h2>{{ camera?.name || ('Camera ' + cameraId) }}</h2>
+      <p class="meta">{{ camera?.host || 'web-cam.local' }}:{{ camera?.port || 80 }}</p>
 
+      <!-- ── Live stream viewer ───────────────────────────────────────────── -->
       <section class="viewer">
-        <img *ngIf="frameSrc; else noframe" [src]="frameSrc" alt="Latest frame" />
-        <ng-template #noframe><p class="frame-msg">{{frameMessage}}</p></ng-template>
+        <img
+          [src]="streamUrl"
+          (error)="onStreamError()"
+          alt="Live MJPEG stream"
+          class="stream-img"
+        />
+        <div *ngIf="streamError" class="stream-overlay">
+          <p>Stream offline — camera may be unreachable</p>
+          <button (click)="retryStream()" class="btn-retry">↺ Retry</button>
+        </div>
       </section>
 
-      <section class="controls">
-        <button (click)="refreshStatus()">Refresh status</button>
-        <button (click)="refreshFrame()">Capture frame</button>
-        <button (click)="start()">Start session</button>
-        <button (click)="stop()">Stop session</button>
+      <!-- ── Camera actions ──────────────────────────────────────────────── -->
+      <section class="actions">
+        <button class="btn" (click)="openCapture()">📸 Capture</button>
+        <button class="btn btn-muted" disabled title="Coming soon">⏺ Record</button>
       </section>
 
-      <section class="controls">
-        <label>Pan  <input type="range" min="0" max="180" [value]="pan"  (input)="setServo('pan', $event)"  /></label>
-        <label>Tilt <input type="range" min="0" max="180" [value]="tilt" (input)="setServo('tilt', $event)" /></label>
-        <button (click)="toggleSwitch()">Toggle Switch</button>
-        <button (click)="toggleLed()">Toggle LED</button>
+      <!-- ── Peripheral controls ─────────────────────────────────────────── -->
+      <section class="card">
+        <h3 class="card-title">Peripherals</h3>
+
+        <div class="periph-row">
+          <span class="periph-name">LED</span>
+          <button
+            class="btn-toggle"
+            [class.active]="ledOn === true"
+            (click)="setLed(true)">ON</button>
+          <button
+            class="btn-toggle"
+            [class.active]="ledOn === false"
+            (click)="setLed(false)">OFF</button>
+        </div>
+
+        <div class="periph-row">
+          <span class="periph-name">Relay</span>
+          <button
+            class="btn-toggle"
+            [class.active]="relayOn === true"
+            (click)="setRelay(true)">ON</button>
+          <button
+            class="btn-toggle"
+            [class.active]="relayOn === false"
+            (click)="setRelay(false)">OFF</button>
+        </div>
       </section>
 
-      <pre *ngIf="status">{{status.body}}</pre>
-      <pre *ngIf="session">Session active: {{session.active}} @ {{session.changedAt}}</pre>
+      <!-- ── Pan / Tilt ───────────────────────────────────────────────────── -->
+      <section class="card">
+        <h3 class="card-title">Pan / Tilt</h3>
+
+        <label class="slider-row">
+          <span class="slider-label">Pan</span>
+          <input
+            type="range" min="0" max="180"
+            [value]="pan"
+            (input)="setServo('pan', $event)" />
+          <span class="angle-val">{{ pan }}°</span>
+        </label>
+
+        <label class="slider-row">
+          <span class="slider-label">Tilt</span>
+          <input
+            type="range" min="0" max="180"
+            [value]="tilt"
+            (input)="setServo('tilt', $event)" />
+          <span class="angle-val">{{ tilt }}°</span>
+        </label>
+      </section>
     </main>
   `,
-  styles: ['.camera-page{padding:1.25rem}.meta{color:#94a3b8}.viewer{margin:1rem 0;background:#020617;border:1px solid #334155;border-radius:12px;padding:.75rem;min-height:240px;display:flex;align-items:center;justify-content:center}img{width:100%;max-width:820px;border-radius:10px;display:block;margin:auto;box-shadow:0 10px 25px rgba(2,6,23,.5)}.controls{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;margin:1rem 0}button{background:#0ea5e9;border:none;color:#082f49;padding:.45rem .8rem;border-radius:8px;font-weight:700;cursor:pointer}label{display:flex;gap:.5rem;align-items:center;background:#1e293b;padding:.3rem .5rem;border-radius:8px}pre{background:#020617;border:1px solid #334155;padding:.75rem;border-radius:8px;color:#cbd5e1}.frame-msg{padding:2rem 1rem;text-align:center;color:#94a3b8}']
+  styles: [`
+    /* ── Layout ────────────────────────────────────────────────────────────── */
+    :host { display: block; }
+    .camera-page {
+      padding: 1.25rem;
+      display: grid;
+      gap: 1rem;
+      max-width: 900px;
+    }
+
+    .back-link { color: #7dd3fc; text-decoration: none; font-size: .875rem; }
+    .back-link:hover { color: #38bdf8; }
+    h2 { margin: .2rem 0 0; font-size: 1.35rem; }
+    .meta { margin: 0; color: #94a3b8; font-size: .825rem; }
+
+    /* ── Viewer ─────────────────────────────────────────────────────────────── */
+    .viewer {
+      position: relative;
+      background: #020617;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      overflow: hidden;
+      min-height: 260px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .stream-img {
+      width: 100%;
+      max-width: 820px;
+      display: block;
+      border-radius: 12px;
+    }
+    .stream-overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(2, 6, 23, .92);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: .75rem;
+      color: #94a3b8;
+      font-size: .9rem;
+    }
+    .btn-retry {
+      background: #1e293b;
+      border: 1px solid #334155;
+      color: #94a3b8;
+      padding: .4rem .9rem;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: .875rem;
+    }
+    .btn-retry:hover { border-color: #0ea5e9; color: #7dd3fc; }
+
+    /* ── Actions ────────────────────────────────────────────────────────────── */
+    .actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+    .btn {
+      background: #0ea5e9;
+      border: none;
+      color: #082f49;
+      padding: .5rem 1.1rem;
+      border-radius: 8px;
+      font-weight: 700;
+      cursor: pointer;
+      font-size: .9rem;
+    }
+    .btn:hover { background: #38bdf8; }
+    .btn-muted {
+      background: #1e293b;
+      color: #475569;
+      cursor: not-allowed;
+    }
+
+    /* ── Card ───────────────────────────────────────────────────────────────── */
+    .card {
+      background: #111827;
+      border: 1px solid #334155;
+      border-radius: 12px;
+      padding: 1rem 1.1rem;
+      display: grid;
+      gap: .6rem;
+    }
+    .card-title {
+      margin: 0 0 .2rem;
+      font-size: .8rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: #64748b;
+    }
+
+    /* ── Peripheral toggles ─────────────────────────────────────────────────── */
+    .periph-row { display: flex; align-items: center; gap: .5rem; }
+    .periph-name { min-width: 55px; color: #e2e8f0; font-size: .9rem; }
+    .btn-toggle {
+      background: #0f172a;
+      border: 1px solid #334155;
+      color: #64748b;
+      padding: .3rem .8rem;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: .85rem;
+      transition: background .15s, color .15s, border-color .15s;
+    }
+    .btn-toggle:hover { border-color: #0ea5e9; color: #7dd3fc; }
+    .btn-toggle.active {
+      background: #0ea5e9;
+      border-color: #0ea5e9;
+      color: #082f49;
+      font-weight: 700;
+    }
+
+    /* ── Sliders ────────────────────────────────────────────────────────────── */
+    .slider-row {
+      display: flex;
+      align-items: center;
+      gap: .75rem;
+      color: #e2e8f0;
+      font-size: .9rem;
+    }
+    .slider-label { min-width: 40px; }
+    .slider-row input[type=range] { flex: 1; accent-color: #0ea5e9; cursor: pointer; }
+    .angle-val { min-width: 38px; text-align: right; color: #94a3b8; font-size: .825rem; }
+  `]
 })
-export class CameraComponent implements OnInit, OnDestroy {
+export class CameraComponent implements OnInit {
   cameraId = '';
   camera?: CameraSummary;
-  status?: CameraStatus;
-  session?: SessionState;
-  frameSrc = '';
-  frameMessage = 'No frame yet. Camera may be offline.';
-  pan = 90;
+
+  streamUrl = '';
+  streamError = false;
+
+  pan  = 90;
   tilt = 90;
-  ledOn = false;
-  switchOn = false;
-  private frameTimer?: ReturnType<typeof setInterval>;
+
+  ledOn   = false;
+  relayOn = false;
 
   constructor(private route: ActivatedRoute, private api: CameraApiService) {}
 
   ngOnInit(): void {
     this.cameraId = this.route.snapshot.paramMap.get('id') || 'cam-1';
-    console.log('[CameraComponent] ngOnInit — cameraId from route param:', this.cameraId);
 
-    console.log('[CameraComponent] calling api.cameras()...');
     this.api.cameras().subscribe({
-      next: cameras => {
-        console.log('[CameraComponent] cameras() resolved:', cameras);
-        this.camera = cameras.find(x => x.id === this.cameraId)
-          ?? { id: this.cameraId, name: `Camera ${this.cameraId}`,
-            host: 'web-cam.local', port: 80, uri: 'http://web-cam.local/' };
-        console.log('[CameraComponent] selected camera:', this.camera);
-        this.refreshFrame();
-        this.frameTimer = setInterval(() => this.refreshFrame(), 2000);
-      },
-      error: err => console.error('[CameraComponent] cameras() ERROR:', err)
+      next: cameras =>
+        (this.camera = cameras.find(c => c.id === this.cameraId) ?? {
+          id: this.cameraId,
+          name: `Camera ${this.cameraId}`,
+          host: 'web-cam.local',
+          port: 80,
+          uri: 'http://web-cam.local/'
+        })
     });
 
-    console.log('[CameraComponent] calling refreshStatus()...');
-    this.refreshStatus();
+    this.streamUrl = `${environment.apiBaseUrl}/cameras/${this.cameraId}/stream`;
   }
 
-  ngOnDestroy(): void {
-    console.log('[CameraComponent] ngOnDestroy — clearing frame timer');
-    if (this.frameTimer) clearInterval(this.frameTimer);
+  // ── Stream ──────────────────────────────────────────────────────────────────
+
+  onStreamError(): void {
+    this.streamError = true;
   }
 
-  refreshStatus(): void {
-    console.log('[CameraComponent] refreshStatus() for camera:', this.cameraId);
-    this.api.status(this.cameraId).subscribe({
-      next:  v   => { console.log('[CameraComponent] status:', v); this.status = v; },
-      error: err => console.error('[CameraComponent] status ERROR:', err.status, err.message)
-    });
+  retryStream(): void {
+    this.streamError = false;
+    // Bust the cache so the browser opens a fresh connection
+    this.streamUrl =
+      `${environment.apiBaseUrl}/cameras/${this.cameraId}/stream?t=${Date.now()}`;
   }
 
-  refreshFrame(): void {
-    this.api.frame(this.cameraId).subscribe({
-      next: v => {
-        if (v.base64) {
-          this.frameSrc = `data:${v.contentType};base64,${v.base64}`;
-          this.frameMessage = `Frame updated at ${v.capturedAt}`;
-        } else {
-          this.frameSrc = '';
-          this.frameMessage = (v as any).error || 'Camera reachable but no frame payload.';
-        }
-      },
-      error: err => {
-        console.error('[CameraComponent] frame ERROR:', err.status, err.message);
-        this.frameSrc = '';
-        this.frameMessage = `Frame fetch failed: ${err.status} ${err.message}`;
-      }
+  // ── Capture / Record ────────────────────────────────────────────────────────
+
+  openCapture(): void {
+    window.open(
+      `${environment.apiBaseUrl}/cameras/${this.cameraId}/capture`,
+      '_blank'
+    );
+  }
+
+  // ── Peripheral controls ─────────────────────────────────────────────────────
+
+  setLed(on: boolean): void {
+    this.ledOn = on;
+    this.api.control(this.cameraId, 'led', `state=${on ? 1 : 0}`).subscribe({
+      error: err => console.error('[CameraComponent] setLed error:', err)
     });
   }
 
-  start(): void {
-    this.api.start(this.cameraId).subscribe({
-      next:  v   => this.session = v,
-      error: err => console.error('[CameraComponent] start ERROR:', err)
-    });
-  }
-
-  stop(): void {
-    this.api.stop(this.cameraId).subscribe({
-      next:  v   => this.session = v,
-      error: err => console.error('[CameraComponent] stop ERROR:', err)
+  setRelay(on: boolean): void {
+    this.relayOn = on;
+    this.api.control(this.cameraId, 'switch', `state=${on ? 1 : 0}`).subscribe({
+      error: err => console.error('[CameraComponent] setRelay error:', err)
     });
   }
 
   setServo(axis: 'pan' | 'tilt', event: Event): void {
     const value = Number((event.target as HTMLInputElement).value);
     if (axis === 'pan') this.pan = value; else this.tilt = value;
-    this.api.control(this.cameraId, axis, `angle=${value}`).subscribe();
-  }
-
-  toggleLed(): void {
-    this.ledOn = !this.ledOn;
-    this.api.control(this.cameraId, 'led', `state=${this.ledOn ? 1 : 0}`).subscribe();
-  }
-
-  toggleSwitch(): void {
-    this.switchOn = !this.switchOn;
-    this.api.control(this.cameraId, 'switch', `state=${this.switchOn ? 1 : 0}`).subscribe();
+    this.api.control(this.cameraId, axis, `angle=${value}`).subscribe({
+      error: err => console.error('[CameraComponent] setServo error:', err)
+    });
   }
 }

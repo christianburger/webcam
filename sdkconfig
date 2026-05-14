@@ -405,8 +405,8 @@ CONFIG_PARTITION_TABLE_MD5=y
 #
 # WiFi Configuration
 #
-CONFIG_WIFI_SSID="dlink-30C0"
-CONFIG_WIFI_PASS="ypics98298"
+CONFIG_WIFI_SSID="Egbertowifi"
+CONFIG_WIFI_PASS="Regrub@1941"
 # end of WiFi Configuration
 
 #

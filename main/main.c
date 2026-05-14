@@ -58,7 +58,7 @@
 
 // 0 = normal, 1 = flipped — adjust to match physical mounting
 #define CAM_HMIRROR  0
-#define CAM_VFLIP    1
+#define CAM_VFLIP    0
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
 // frame_queue  –  stream_handler is the ONLY consumer.
