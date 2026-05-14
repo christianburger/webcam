@@ -7,17 +7,9 @@
 //                Non-blocking send: frame dropped if consumer is slow.
 //                Depth = 1: guarantees free buffers for DMA while streaming.
 //
-//
 //  esp_camera    fb_get / fb_return are internally thread-safe in the Espressif
 //                driver. An external mutex that holds a lock ACROSS a blocking
-//                fb_get() call is a reliable deadlock:
-//
-//                  camera_task  holds mutex, blocks in fb_get() waiting for a
-//                               free buffer — but both buffers are in the queue.
-//                  stream_handler not running → nobody calls fb_return → DEADLOCK.
-//
-//                camera_safe.{c,h} and camera_mutex are removed entirely.
-//                Delete those two files from the source tree.
+//                fb_get() call is a reliable deadlock.
 //
 //  Buffer pool accounting
 //  ──────────────────────
@@ -27,9 +19,6 @@
 //  Worst case: fb[0] → queue (stream_handler consuming)
 //              fb[1] → DMA   (camera_task capturing next frame)
 //              fb[2] → free / available for next capture
-//
-//  This eliminates the "cam_hal: Failed to get frame: timeout" seen when
-//  fb_count=2 / queue_depth=2 stranded all buffers in the queue.
 // =============================================================================
 
 #include <stdio.h>
@@ -43,7 +32,6 @@
 #include "freertos/task.h"
 #include "freertos/queue.h"
 #include "driver/gpio.h"
-#include "driver/i2c.h"
 #include "network_manager.h"
 #include "cam_log.h"
 
@@ -65,13 +53,12 @@
 #define CAM_PIN_HREF    23
 #define CAM_PIN_PCLK    22
 
-#define GC2145_SCCB_ADDR        0x3C
 #define CAM_INIT_MAX_RETRIES    3
 #define CAM_INIT_RETRY_DELAY_MS 2000
 
 // 0 = normal, 1 = flipped — adjust to match physical mounting
 #define CAM_HMIRROR  0
-#define CAM_VFLIP    1
+#define CAM_VFLIP    0
 
 // ─── Shared state ─────────────────────────────────────────────────────────────
 // frame_queue  –  stream_handler is the ONLY consumer.
@@ -101,7 +88,7 @@ static camera_config_t camera_config = {
     .pixel_format   = PIXFORMAT_JPEG,
     .frame_size     = FRAMESIZE_VGA,
     .jpeg_quality   = 12,
-    .fb_count       = 3,               // ← was 2; see buffer accounting in header
+    .fb_count       = 3,
     .grab_mode      = CAMERA_GRAB_LATEST,
 };
 
@@ -122,41 +109,6 @@ static const char *sensor_name(uint16_t pid) {
     }
 }
 
-// Pre-init I2C scan – result at DEBUG level; summary at INFO.
-static void i2c_scan_sccb_bus(void) {
-    i2c_config_t conf = {
-        .mode             = I2C_MODE_MASTER,
-        .sda_io_num       = CAM_PIN_SIOD,
-        .scl_io_num       = CAM_PIN_SIOC,
-        .sda_pullup_en    = GPIO_PULLUP_ENABLE,
-        .scl_pullup_en    = GPIO_PULLUP_ENABLE,
-        .master.clk_speed = 100000,
-    };
-    i2c_param_config(I2C_NUM_1, &conf);
-    // If SCCB driver already owns the bus (post-init call), install fails silently.
-    if (i2c_driver_install(I2C_NUM_1, I2C_MODE_MASTER, 0, 0, 0) != ESP_OK) return;
-
-    int found = 0;
-    for (uint8_t addr = 1; addr < 127; addr++) {
-        i2c_cmd_handle_t cmd = i2c_cmd_link_create();
-        i2c_master_start(cmd);
-        i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
-        i2c_master_stop(cmd);
-        if (i2c_master_cmd_begin(I2C_NUM_1, cmd, pdMS_TO_TICKS(10)) == ESP_OK) {
-            ESP_LOGD(TG_CAM_INIT, "I2C 0x%02X%s", addr,
-                     (addr == GC2145_SCCB_ADDR) ? " ← expected" : "");
-            found++;
-        }
-        i2c_cmd_link_delete(cmd);
-    }
-    i2c_driver_delete(I2C_NUM_1);
-
-    if (found == 0)
-        ESP_LOGW(TG_CAM_INIT, "I2C scan: no devices — check PWDN, SDA/SCL pull-ups");
-    else
-        ESP_LOGI(TG_CAM_INIT, "I2C scan: %d device(s)", found);
-}
-
 // ─── Camera task ──────────────────────────────────────────────────────────────
 
 void camera_task(void *pvParameters) {
@@ -170,14 +122,11 @@ void camera_task(void *pvParameters) {
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 
-    // 2. Pre-init I2C scan
-    i2c_scan_sccb_bus();
-
-    // 3. PSRAM check
+    // 2. PSRAM check
     ESP_LOGI(TG_CAM_INIT, "PSRAM %zu KB  heap %lu B",
              esp_psram_get_size() / 1024, (unsigned long)esp_get_free_heap_size());
 
-    // 4. Camera init (with retries)
+    // 3. Camera init (with retries)
     esp_err_t err = ESP_FAIL;
     for (int i = 1; i <= CAM_INIT_MAX_RETRIES && err != ESP_OK; i++) {
         err = esp_camera_init(&camera_config);
@@ -197,7 +146,7 @@ void camera_task(void *pvParameters) {
              camera_config.xclk_freq_hz, camera_config.frame_size,
              camera_config.jpeg_quality, camera_config.fb_count);
 
-    // 5. Sensor ID + post-init settings
+    // 4. Sensor ID + post-init settings
     sensor_t *s = esp_camera_sensor_get();
     if (s) {
         uint16_t pid = s->id.PID;
@@ -212,7 +161,7 @@ void camera_task(void *pvParameters) {
         s->set_gain_ctrl(s, 1);
     }
 
-    // 6. Warm-up frame (let sensor stabilise after XCLK start)
+    // 5. Warm-up frame (let sensor stabilise after XCLK start)
     vTaskDelay(pdMS_TO_TICKS(300));
     camera_fb_t *wb = esp_camera_fb_get();
     if (wb) {
@@ -224,7 +173,7 @@ void camera_task(void *pvParameters) {
 
     ESP_LOGI(TG_CAM_INIT, "capture loop started on core %d", xPortGetCoreID());
 
-    // 7. Main capture loop
+    // 6. Main capture loop
     uint32_t frame_count = 0;
     uint32_t drop_count  = 0;
 
