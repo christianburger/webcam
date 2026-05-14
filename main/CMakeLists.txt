@@ -1,6 +1,7 @@
 idf_component_register(
   SRCS
   "main.c"
+  "wifi_manager.c"
   "network_manager.c"
   "controller.c"
   "peripherals.c"
@@ -15,5 +16,7 @@ idf_component_register(
   esp_event
   esp_timer
   esp_psram
+  esp_netif
   driver
+  mdns
 )

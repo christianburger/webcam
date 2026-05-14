@@ -1,5 +1,6 @@
 #include "controller.h"
 #include "peripherals.h"
+#include "wifi_manager.h"
 #include "cam_log.h"
 #include "esp_log.h"
 #include "esp_system.h"
@@ -17,8 +18,8 @@
 
 extern QueueHandle_t frame_queue;
 
-#define SW_JPEG_QUALITY 80
-#define STREAM_BOUNDARY "ESP32CAMBOUNDARY"
+#define SW_JPEG_QUALITY  80
+#define STREAM_BOUNDARY  "ESP32CAMBOUNDARY"
 
 // ─── Request / response logging ───────────────────────────────────────────────
 
@@ -67,7 +68,8 @@ static void send_err(httpd_req_t *req, const char *msg) {
     httpd_resp_sendstr(req, buf);
 }
 
-static bool get_jpeg(camera_fb_t *pic, uint8_t **out_buf, size_t *out_len, bool *converted) {
+static bool get_jpeg(camera_fb_t *pic, uint8_t **out_buf, size_t *out_len,
+                     bool *converted) {
     *converted = false;
     if (pic->format == PIXFORMAT_JPEG) {
         *out_buf = pic->buf;
@@ -84,14 +86,12 @@ static bool get_jpeg(camera_fb_t *pic, uint8_t **out_buf, size_t *out_len, bool 
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 
-// Root: returns API-info JSON. The full HTML UI is now served by Spring Boot.
 esp_err_t root_handler(httpd_req_t *req) {
     int64_t t0 = esp_timer_get_time();
     log_request(req, TG_NET_HTTP);
     const char *body =
         "{"
         "\"service\":\"ESP32-CAM\","
-        "\"ui\":\"served by relay-backend (Spring Boot)\","
         "\"endpoints\":["
             "\"/status\",\"/capture\",\"/stream\",\"/hardware\","
             "\"/periph/state\",\"/control/pan\",\"/control/tilt\","
@@ -105,19 +105,65 @@ esp_err_t root_handler(httpd_req_t *req) {
     return ESP_OK;
 }
 
+// ─── /status — system + WiFi health ──────────────────────────────────────────
+//
+//  Response schema:
+//  {
+//    "heap":      <bytes>,
+//    "tasks":     <count>,
+//    "cpu_mhz":   <mhz>,
+//    "wifi": {
+//      "state":      "CONNECTED" | "DEGRADED" | "SCANNING" | ...,
+//      "ssid":       "<ssid>",
+//      "rssi_dbm":   <int8>,
+//      "ip":         "<a.b.c.d>",
+//      "uptime_s":   <uint32>,
+//      "degraded":   true|false,
+//      "switches":   <uint32>,
+//      "reconnects": <uint32>
+//    }
+//  }
+
 esp_err_t status_handler(httpd_req_t *req) {
     int64_t t0 = esp_timer_get_time();
     log_request(req, TG_NET_HTTP);
-    char buf[128];
-    snprintf(buf, sizeof(buf),
-             "{\"heap\":%lu,\"tasks\":%d,\"cpu\":%d}",
-             esp_get_free_heap_size(),
-             uxTaskGetNumberOfTasks(),
-             CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ);
+
+    wifi_manager_info_t wi;
+    wifi_manager_get_info(&wi);
+
+    char buf[512];
+    int n = snprintf(buf, sizeof(buf),
+        "{"
+        "\"heap\":%lu,"
+        "\"tasks\":%d,"
+        "\"cpu_mhz\":%d,"
+        "\"wifi\":{"
+          "\"state\":\"%s\","
+          "\"ssid\":\"%s\","
+          "\"rssi_dbm\":%d,"
+          "\"ip\":\"%s\","
+          "\"uptime_s\":%lu,"
+          "\"degraded\":%s,"
+          "\"switches\":%lu,"
+          "\"reconnects\":%lu"
+        "}"
+        "}",
+        (unsigned long)esp_get_free_heap_size(),
+        uxTaskGetNumberOfTasks(),
+        CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ,
+        wifi_manager_state_str(wi.state),
+        wi.ssid,
+        (int)wi.rssi_dbm,
+        wi.ip,
+        (unsigned long)wi.uptime_s,
+        wi.degraded ? "true" : "false",
+        (unsigned long)wi.switches,
+        (unsigned long)wi.reconnects);
+
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    httpd_resp_send(req, buf, (ssize_t)strlen(buf));
-    log_response(TG_NET_HTTP, true, strlen(buf), t0);
+    httpd_resp_send(req, buf, n);
+    log_response(TG_NET_HTTP, true, (size_t)n, t0);
     return ESP_OK;
 }
 
@@ -127,7 +173,7 @@ esp_err_t hardware_info_handler(httpd_req_t *req) {
     char buf[512];
     esp_chip_info_t ci;
     esp_chip_info(&ci);
-    snprintf(buf, sizeof(buf),
+    int n = snprintf(buf, sizeof(buf),
         "{"
         "\"model\":\"ESP32\","
         "\"cores\":%d,"
@@ -144,8 +190,8 @@ esp_err_t hardware_info_handler(httpd_req_t *req) {
         (ci.features & CHIP_FEATURE_EMB_PSRAM) ? "true" : "false");
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    httpd_resp_send(req, buf, (ssize_t)strlen(buf));
-    log_response(TG_NET_HTTP, true, strlen(buf), t0);
+    httpd_resp_send(req, buf, n);
+    log_response(TG_NET_HTTP, true, (size_t)n, t0);
     return ESP_OK;
 }
 
@@ -163,20 +209,18 @@ esp_err_t capture_handler(httpd_req_t *req) {
 
     camera_fb_t *pic = esp_camera_fb_get();
     if (!pic) {
-        ESP_LOGE(TG_CTL_CAPT, "fb_get returned NULL after %lld µs",
-                 (long long)(esp_timer_get_time() - t0));
+        ESP_LOGE(TG_CTL_CAPT, "fb_get returned NULL");
         httpd_resp_send_500(req);
         log_response(TG_CTL_CAPT, false, 0, t0);
         return ESP_FAIL;
     }
-    ESP_LOGI(TG_CTL_CAPT, "frame acquired: %zu B in %lld µs",
+    ESP_LOGI(TG_CTL_CAPT, "frame %zu B  in %lld µs",
              pic->len, (long long)(esp_timer_get_time() - t0));
 
     uint8_t *jpg = NULL;
     size_t   len = 0;
     bool converted = false;
     if (!get_jpeg(pic, &jpg, &len, &converted)) {
-        ESP_LOGE(TG_CTL_CAPT, "JPEG conversion failed");
         esp_camera_fb_return(pic);
         httpd_resp_send_500(req);
         log_response(TG_CTL_CAPT, false, 0, t0);
@@ -206,10 +250,8 @@ esp_err_t stream_handler(httpd_req_t *req) {
     uint32_t frame_idx = 0;
     while (1) {
         camera_fb_t *pic;
-        int64_t frame_t0 = esp_timer_get_time();
         if (xQueueReceive(frame_queue, &pic, pdMS_TO_TICKS(2000)) != pdTRUE || !pic) {
-            ESP_LOGW(TG_CTL_STRM, "frame receive timeout after %lld µs",
-                     (long long)(esp_timer_get_time() - frame_t0));
+            ESP_LOGW(TG_CTL_STRM, "frame timeout");
             break;
         }
 
@@ -217,7 +259,6 @@ esp_err_t stream_handler(httpd_req_t *req) {
         size_t   len = 0;
         bool converted = false;
         if (!get_jpeg(pic, &jpg, &len, &converted)) {
-            ESP_LOGE(TG_CTL_STRM, "JPEG encode failed on frame %lu", (unsigned long)frame_idx);
             esp_camera_fb_return(pic);
             break;
         }
@@ -236,8 +277,7 @@ esp_err_t stream_handler(httpd_req_t *req) {
         esp_camera_fb_return(pic);
 
         if (res != ESP_OK) {
-            ESP_LOGI(TG_CTL_STRM, "client disconnected after %lu frames (err=%d)",
-                     (unsigned long)frame_idx, res);
+            ESP_LOGI(TG_CTL_STRM, "client disconnect after %lu frames", (unsigned long)frame_idx);
             break;
         }
         frame_idx++;
@@ -247,7 +287,7 @@ esp_err_t stream_handler(httpd_req_t *req) {
         vTaskDelay(pdMS_TO_TICKS(1));
     }
 
-    ESP_LOGI(TG_CTL_STRM, "stream ended: %lu frames in %lld µs",
+    ESP_LOGI(TG_CTL_STRM, "stream ended: %lu frames  %lld µs",
              (unsigned long)frame_idx, (long long)(esp_timer_get_time() - t0));
     return ESP_OK;
 }
@@ -257,14 +297,12 @@ esp_err_t pan_handler(httpd_req_t *req) {
     log_request(req, TG_CTL_CMD);
     int angle = 90;
     if (query_int(req, "angle", &angle) != ESP_OK) {
-        ESP_LOGW(TG_CTL_CMD, "pan: missing 'angle' query param");
         send_err(req, "missing angle"); return ESP_FAIL;
     }
     if (servo_set_pan(angle) != ESP_OK) {
-        ESP_LOGE(TG_CTL_CMD, "pan: servo error at %d°", angle);
         send_err(req, "servo error"); return ESP_FAIL;
     }
-    ESP_LOGI(TG_CTL_CMD, "pan set to %d°", servo_get_pan());
+    ESP_LOGI(TG_CTL_CMD, "pan=%d°", servo_get_pan());
     send_ok(req);
     log_response(TG_CTL_CMD, true, 11, t0);
     return ESP_OK;
@@ -275,14 +313,12 @@ esp_err_t tilt_handler(httpd_req_t *req) {
     log_request(req, TG_CTL_CMD);
     int angle = 90;
     if (query_int(req, "angle", &angle) != ESP_OK) {
-        ESP_LOGW(TG_CTL_CMD, "tilt: missing 'angle' query param");
         send_err(req, "missing angle"); return ESP_FAIL;
     }
     if (servo_set_tilt(angle) != ESP_OK) {
-        ESP_LOGE(TG_CTL_CMD, "tilt: servo error at %d°", angle);
         send_err(req, "servo error"); return ESP_FAIL;
     }
-    ESP_LOGI(TG_CTL_CMD, "tilt set to %d°", servo_get_tilt());
+    ESP_LOGI(TG_CTL_CMD, "tilt=%d°", servo_get_tilt());
     send_ok(req);
     log_response(TG_CTL_CMD, true, 11, t0);
     return ESP_OK;
@@ -293,11 +329,9 @@ esp_err_t led_handler(httpd_req_t *req) {
     log_request(req, TG_CTL_CMD);
     int state = 0;
     if (query_int(req, "state", &state) != ESP_OK) {
-        ESP_LOGW(TG_CTL_CMD, "led: missing 'state' query param");
         send_err(req, "missing state"); return ESP_FAIL;
     }
     if (led_set(state != 0) != ESP_OK) {
-        ESP_LOGE(TG_CTL_CMD, "led: gpio error state=%d", state);
         send_err(req, "gpio error"); return ESP_FAIL;
     }
     ESP_LOGI(TG_CTL_CMD, "led=%s", led_get() ? "ON" : "OFF");
@@ -311,11 +345,9 @@ esp_err_t switch_handler(httpd_req_t *req) {
     log_request(req, TG_CTL_CMD);
     int state = 0;
     if (query_int(req, "state", &state) != ESP_OK) {
-        ESP_LOGW(TG_CTL_CMD, "switch: missing 'state' query param");
         send_err(req, "missing state"); return ESP_FAIL;
     }
     if (switch_set(state != 0) != ESP_OK) {
-        ESP_LOGE(TG_CTL_CMD, "switch: gpio error state=%d", state);
         send_err(req, "gpio error"); return ESP_FAIL;
     }
     ESP_LOGI(TG_CTL_CMD, "switch=%s", switch_get() ? "ON" : "OFF");
@@ -328,14 +360,14 @@ esp_err_t periph_state_handler(httpd_req_t *req) {
     int64_t t0 = esp_timer_get_time();
     log_request(req, TG_CTL_CMD);
     char buf[128];
-    snprintf(buf, sizeof(buf),
+    int n = snprintf(buf, sizeof(buf),
              "{\"led\":%d,\"sw\":%d,\"pan\":%d,\"tilt\":%d}",
              led_get() ? 1 : 0, switch_get() ? 1 : 0,
              servo_get_pan(), servo_get_tilt());
     httpd_resp_set_type(req, "application/json");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    httpd_resp_send(req, buf, (ssize_t)strlen(buf));
-    log_response(TG_CTL_CMD, true, strlen(buf), t0);
+    httpd_resp_send(req, buf, n);
+    log_response(TG_CTL_CMD, true, (size_t)n, t0);
     return ESP_OK;
 }
 
@@ -343,24 +375,27 @@ esp_err_t periph_state_handler(httpd_req_t *req) {
 
 void controller_register_handlers(httpd_handle_t server) {
     const httpd_uri_t routes[] = {
-        { .uri = "/",              .method = HTTP_GET, .handler = root_handler          },
-        { .uri = "/capture",       .method = HTTP_GET, .handler = capture_handler       },
-        { .uri = "/stream",        .method = HTTP_GET, .handler = stream_handler        },
-        { .uri = "/status",        .method = HTTP_GET, .handler = status_handler        },
-        { .uri = "/hardware",      .method = HTTP_GET, .handler = hardware_info_handler },
-        { .uri = "/control/pan",   .method = HTTP_GET, .handler = pan_handler           },
-        { .uri = "/control/tilt",  .method = HTTP_GET, .handler = tilt_handler          },
-        { .uri = "/control/led",   .method = HTTP_GET, .handler = led_handler           },
-        { .uri = "/control/switch",.method = HTTP_GET, .handler = switch_handler        },
-        { .uri = "/periph/state",  .method = HTTP_GET, .handler = periph_state_handler  },
+        { .uri = "/",              .method = HTTP_GET,  .handler = root_handler          },
+        { .uri = "/capture",       .method = HTTP_POST, .handler = capture_handler       },
+        { .uri = "/stream",        .method = HTTP_GET,  .handler = stream_handler        },
+        { .uri = "/status",        .method = HTTP_GET,  .handler = status_handler        },
+        { .uri = "/hardware",      .method = HTTP_GET,  .handler = hardware_info_handler },
+        { .uri = "/control/pan",   .method = HTTP_GET,  .handler = pan_handler           },
+        { .uri = "/control/tilt",  .method = HTTP_GET,  .handler = tilt_handler          },
+        { .uri = "/control/led",   .method = HTTP_GET,  .handler = led_handler           },
+        { .uri = "/control/switch",.method = HTTP_GET,  .handler = switch_handler        },
+        { .uri = "/periph/state",  .method = HTTP_GET,  .handler = periph_state_handler  },
     };
     const int n = (int)(sizeof(routes) / sizeof(routes[0]));
     for (int i = 0; i < n; i++) {
         esp_err_t r = httpd_register_uri_handler(server, &routes[i]);
         if (r != ESP_OK)
-            ESP_LOGE(TG_NET_HTTP, "register FAILED %s: %s", routes[i].uri, esp_err_to_name(r));
+            ESP_LOGE(TG_NET_HTTP, "register FAILED %s: %s",
+                     routes[i].uri, esp_err_to_name(r));
         else
-            ESP_LOGI(TG_NET_HTTP, "registered GET %s", routes[i].uri);
+            ESP_LOGI(TG_NET_HTTP, "registered  %s %s",
+                     routes[i].method == HTTP_GET ? "GET " : "POST",
+                     routes[i].uri);
     }
-    ESP_LOGI(TG_NET_HTTP, "%d routes ready. HTML UI is now served by Spring Boot relay.", n);
+    ESP_LOGI(TG_NET_HTTP, "%d routes registered", n);
 }

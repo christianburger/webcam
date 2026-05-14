@@ -1,15 +1,101 @@
 menu "WiFi Configuration"
 
-config WIFI_SSID
-    string "WiFi SSID"
+config WIFI_SSID_1
+    string "Primary WiFi SSID"
     default "myssid"
     help
-        SSID of the access point to connect to.
+        SSID of the first (primary) access point to try. Must not be empty.
 
-config WIFI_PASS
-    string "WiFi Password"
+config WIFI_PASS_1
+    string "Primary WiFi Password"
     default ""
     help
-        Password for the access point. Leave empty for open networks.
+        Password for the primary AP. Leave empty for open networks.
+
+config WIFI_SSID_2
+    string "Secondary WiFi SSID (leave empty to disable)"
+    default ""
+    help
+        SSID of a fallback access point. Leave empty to skip this slot.
+
+config WIFI_PASS_2
+    string "Secondary WiFi Password"
+    default ""
+
+config WIFI_SSID_3
+    string "Tertiary WiFi SSID (leave empty to disable)"
+    default ""
+    help
+        Leave empty to skip this slot.
+
+config WIFI_PASS_3
+    string "Tertiary WiFi Password"
+    default ""
+
+config WIFI_SSID_4
+    string "Quaternary WiFi SSID (leave empty to disable)"
+    default ""
+    help
+        Leave empty to skip this slot.
+
+config WIFI_PASS_4
+    string "Quaternary WiFi Password"
+    default ""
+
+config WIFI_RETRIES_PER_NETWORK
+    int "Retries per network before switching to the next"
+    range 1 20
+    default 3
+    help
+        How many consecutive association failures are tolerated on a single
+        SSID before the firmware moves on to the next configured network.
+        After all networks have been tried (one full cycle), the firmware
+        waits WIFI_INTER_CYCLE_DELAY_S seconds, re-scans for visible APs,
+        then starts the cycle again. This repeats indefinitely.
+
+config WIFI_INTER_CYCLE_DELAY_S
+    int "Delay between full retry cycles (seconds)"
+    range 5 300
+    default 30
+    help
+        How long to wait after exhausting every configured network before
+        scanning and retrying. Increase this on battery-powered builds to
+        reduce power consumption during extended outages.
+
+config WIFI_RSSI_WARN_THRESHOLD
+    int "RSSI warning threshold (dBm)"
+    range -100 -40
+    default -72
+    help
+        When RSSI stays below this level for WIFI_DEGRADED_CONFIRM_N
+        consecutive monitor ticks, the manager performs a background scan
+        and switches to a stronger AP if one is available.
+
+config WIFI_RSSI_CRITICAL_THRESHOLD
+    int "RSSI critical threshold (dBm)"
+    range -100 -40
+    default -85
+    help
+        A single reading below this level triggers an immediate background
+        scan without waiting for confirmation. Should be more negative than
+        WIFI_RSSI_WARN_THRESHOLD.
+
+config WIFI_DEGRADED_CONFIRM_N
+    int "Consecutive weak readings before acting"
+    range 1 10
+    default 3
+    help
+        Number of consecutive RSSI readings below WIFI_RSSI_WARN_THRESHOLD
+        required before the manager scans for a better AP. Prevents
+        thrashing caused by transient RF interference.
+
+config WIFI_MONITOR_INTERVAL_MS
+    int "RSSI monitor interval (milliseconds)"
+    range 1000 60000
+    default 5000
+    help
+        How often the WiFi manager samples the current AP's RSSI while
+        connected. Lower values give faster reaction to degradation but
+        consume slightly more CPU.
 
 endmenu
