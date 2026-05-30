@@ -438,6 +438,7 @@ esp_err_t wifi_manager_init(void) {
     ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
 
     ESP_ERROR_CHECK(esp_wifi_start());
+    ESP_ERROR_CHECK(esp_wifi_set_max_tx_power(84));
 
     ESP_ERROR_CHECK(esp_event_handler_register(
         WIFI_EVENT, ESP_EVENT_ANY_ID,    on_wifi_event, NULL));
